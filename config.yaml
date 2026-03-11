@@ -1,0 +1,22 @@
+hdd_root: ""
+archive_dir: "ARCHIVE"
+edits_dir: "EDITS"
+inbox_dir: "INBOX"
+review_dir: "REVIEW"
+staging_dir: "STAGING"
+log_dir: ".memorial_logs"
+
+operations:
+  default_mode: copy          # copy or move
+  dry_run_first: true
+  session_gap_hours: 2
+  max_files_per_folder: 500
+
+duplicates:
+  sha256_check: true
+  phash_check: true
+  phash_threshold: 10
+
+ui:
+  theme: dark
+  language: tr

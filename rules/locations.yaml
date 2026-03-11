@@ -1,0 +1,14 @@
+everyday_locations:
+  Giresun:
+    gps_bbox:
+      lat: [40.85, 41.15]
+      lon: [38.25, 38.55]
+    label: EVERYDAY
+    adaptive_split:
+      weekly_threshold: 500
+      monthly_threshold: 200
+
+correlation:
+  time_window_minutes: 30
+  min_gps_accuracy_meters: 100
+  prefer_device: iPhone
