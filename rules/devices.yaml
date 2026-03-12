@@ -1,0 +1,18 @@
+devices:
+  Sony_a6700:
+    exif_model: ["ILCE-6700"]
+    filename_prefix: ["DSC"]
+    video_codec: ["XAVC S"]
+  Canon_6D:
+    exif_model: ["Canon EOS 6D"]
+    filename_prefix: ["IMG_"]
+  Canon_60D:
+    exif_model: ["Canon EOS 60D"]
+    filename_prefix: ["IMG_"]
+  iPhone:
+    exif_make: ["Apple"]
+    color_profile: ["Display P3"]
+    filename_prefix: ["IMG_", "HEIC"]
+  Samsung_Note8:
+    exif_model: ["SM-N950"]
+    filename_prefix: ["IMG_", "VID_"]
