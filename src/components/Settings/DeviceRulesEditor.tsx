@@ -1,8 +1,4 @@
-import { useAppStore } from "../../store/useAppStore";
-
 export default function DeviceRulesEditor() {
-  const { settings } = useAppStore();
-
   return (
     <div className="bg-[#1a1d27] border border-[#2e3347] rounded-xl p-5">
       <p className="text-sm font-semibold text-[#e8eaf0] mb-1">Cihaz Kuralları</p>

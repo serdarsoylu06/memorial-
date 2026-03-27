@@ -12,8 +12,8 @@ export default function SessionCard({ session }: SessionCardProps) {
   const { approvedSessions, rejectedSessions, approveSession, rejectSession } = useInboxStore();
   const navigate = useNavigate();
 
-  const isApproved = approvedSessions.has(session.id);
-  const isRejected = rejectedSessions.has(session.id);
+  const isApproved = approvedSessions.includes(session.id);
+  const isRejected = rejectedSessions.includes(session.id);
 
   return (
     <div

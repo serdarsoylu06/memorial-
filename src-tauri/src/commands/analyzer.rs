@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use super::utils::ascii_value;
 
 /// Detected device type from EXIF or filename patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,16 +98,6 @@ fn dms_to_decimal(field: &exif::Field) -> Option<f64> {
         }
     }
     None
-}
-
-fn ascii_value(field: &exif::Field) -> Option<String> {
-    if let exif::Value::Ascii(ref v) = field.value {
-        v.first()
-            .and_then(|b| std::str::from_utf8(b).ok())
-            .map(|s| s.trim_end_matches('\0').to_string())
-    } else {
-        None
-    }
 }
 
 fn detect_device(make: Option<&str>, model: Option<&str>) -> DeviceType {

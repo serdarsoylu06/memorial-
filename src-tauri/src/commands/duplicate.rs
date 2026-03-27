@@ -1,4 +1,5 @@
 use super::analyzer::DuplicatePair;
+use super::utils::compute_file_sha256;
 
 /// Compute SHA-256 hash for a single file.
 #[tauri::command]
@@ -18,22 +19,6 @@ pub async fn compute_sha256(file_path: String) -> Result<String, String> {
         hasher.update(&buf[..n]);
     }
     Ok(hex::encode(hasher.finalize()))
-}
-
-fn compute_file_sha256(path: &std::path::Path) -> Option<String> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).ok()?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file.read(&mut buf).ok()?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Some(hex::encode(hasher.finalize()))
 }
 
 fn compute_phash(path: &std::path::Path) -> Option<u64> {
@@ -69,7 +54,7 @@ pub async fn check_duplicates(
         // Step 1: SHA-256 exact duplicates
         let hashes: Vec<Option<String>> = file_paths
             .iter()
-            .map(|p| compute_file_sha256(std::path::Path::new(p)))
+            .map(|p| compute_file_sha256(std::path::Path::new(p)).ok())
             .collect();
 
         let mut hash_groups: std::collections::HashMap<String, Vec<usize>> =

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::analyzer::{device_type_name, DeviceType, MediaFile};
+use super::utils::ascii_value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassifyResult {
@@ -73,14 +74,4 @@ pub async fn classify_file(file: MediaFile) -> Result<ClassifyResult, String> {
     })
     .await
     .map_err(|e| format!("Task join error: {e}"))?
-}
-
-fn ascii_value(field: &exif::Field) -> Option<String> {
-    if let exif::Value::Ascii(ref v) = field.value {
-        v.first()
-            .and_then(|b| std::str::from_utf8(b).ok())
-            .map(|s| s.trim_end_matches('\0').to_string())
-    } else {
-        None
-    }
 }

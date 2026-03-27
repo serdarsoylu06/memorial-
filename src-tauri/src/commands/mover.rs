@@ -1,4 +1,5 @@
 use super::analyzer::FileOpResult;
+use super::utils::compute_file_sha256;
 
 /// Move files to their target archive paths.
 #[tauri::command]
@@ -100,20 +101,4 @@ pub async fn copy_files(
     })
     .await
     .map_err(|e| format!("Task join error: {e}"))?
-}
-
-fn compute_file_sha256(path: &std::path::Path) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex::encode(hasher.finalize()))
 }
