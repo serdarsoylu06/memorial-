@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,8 +48,3 @@ pub async fn read_manifest(folder_path: String) -> Result<Option<Manifest>, Stri
     .await
     .map_err(|e| format!("Task join error: {e}"))?
 }
-
-// Suppress unused import warning – Utc is used in tests / future callers
-const _: fn() = || {
-    let _ = Utc::now();
-};

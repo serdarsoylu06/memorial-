@@ -96,6 +96,9 @@ pub async fn check_duplicates(
         }
 
         // Step 2: pHash perceptual duplicates for image files
+        // pHash is only computed for formats supported by the image crate's current
+        // feature set (jpeg, png, webp). RAW formats (arw, cr2, cr3), HEIC, and
+        // videos are skipped here; they may still appear as exact duplicates via SHA-256.
         const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png"];
         let phashes: Vec<Option<u64>> = file_paths
             .iter()

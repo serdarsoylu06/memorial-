@@ -22,7 +22,7 @@ pub async fn move_files(
             }
             let dst_path = std::path::Path::new(dst);
             if let Some(parent) = dst_path.parent() {
-                if let Err(_) = std::fs::create_dir_all(parent) {
+                if std::fs::create_dir_all(parent).is_err() {
                     failed.push(src.clone());
                     continue;
                 }
@@ -70,7 +70,7 @@ pub async fn copy_files(
             }
             let dst_path = std::path::Path::new(dst);
             if let Some(parent) = dst_path.parent() {
-                if let Err(_) = std::fs::create_dir_all(parent) {
+                if std::fs::create_dir_all(parent).is_err() {
                     failed.push(src.clone());
                     continue;
                 }
