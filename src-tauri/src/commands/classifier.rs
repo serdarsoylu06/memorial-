@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::analyzer::{DeviceType, MediaFile};
+use super::analyzer::{device_type_name, DeviceType, MediaFile};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassifyResult {
@@ -10,24 +10,77 @@ pub struct ClassifyResult {
     pub confidence: String,
 }
 
-/// Classify a single media file by device and location.
-///
-/// Uses:
-///   - EXIF model/make fields
-///   - Filename prefix patterns from devices.yaml
-///   - GPS bbox matching against locations.yaml
+/// Classify a single media file by device using EXIF Make/Model.
 #[tauri::command]
 pub async fn classify_file(file: MediaFile) -> Result<ClassifyResult, String> {
-    // TODO: Load devices.yaml rules
-    // TODO: Match file EXIF model against device rules
-    // TODO: Match GPS coordinates against location bboxes
-    // TODO: Fall back to filename prefix matching
-    // TODO: Return confidence score
-    let _ = file;
-    Ok(ClassifyResult {
-        device: DeviceType::Unknown,
-        is_everyday: false,
-        suggested_folder: String::new(),
-        confidence: "none".to_string(),
+    tokio::task::spawn_blocking(move || {
+        use exif::{In, Reader as ExifReader, Tag};
+        use std::fs::File;
+        use std::io::BufReader;
+
+        let path = std::path::Path::new(&file.path);
+        let mut make: Option<String> = None;
+        let mut model: Option<String> = None;
+
+        if let Ok(f) = File::open(path) {
+            let mut br = BufReader::new(f);
+            if let Ok(exif_data) = ExifReader::new().read_from_container(&mut br) {
+                make = exif_data
+                    .get_field(Tag::Make, In::PRIMARY)
+                    .and_then(|f| ascii_value(f));
+                model = exif_data
+                    .get_field(Tag::Model, In::PRIMARY)
+                    .and_then(|f| ascii_value(f));
+            }
+        }
+
+        let (device, is_everyday, confidence) = match (make.as_deref(), model.as_deref()) {
+            (Some(mk), Some(md)) => {
+                let mk_l = mk.to_lowercase();
+                let md_l = md.to_lowercase();
+                if mk_l.contains("sony") && md_l.contains("ilce-6700") {
+                    (DeviceType::SonyA6700, false, "high")
+                } else if mk_l.contains("canon") && md_l.contains("60d") {
+                    (DeviceType::Canon60D, false, "high")
+                } else if mk_l.contains("canon") && md_l.contains("6d") {
+                    (DeviceType::Canon6D, false, "high")
+                } else if mk_l.contains("apple") && md_l.contains("iphone") {
+                    (DeviceType::IPhone, true, "high")
+                } else if mk_l.contains("samsung") && md_l.contains("sm-n950") {
+                    (DeviceType::SamsungNote8, true, "high")
+                } else if mk_l.contains("sony")
+                    || mk_l.contains("canon")
+                    || mk_l.contains("apple")
+                    || mk_l.contains("samsung")
+                {
+                    (DeviceType::Unknown, false, "medium")
+                } else {
+                    (DeviceType::Unknown, false, "low")
+                }
+            }
+            (Some(_), None) => (DeviceType::Unknown, false, "medium"),
+            _ => (DeviceType::Unknown, false, "low"),
+        };
+
+        let suggested_folder = device_type_name(&device).to_string();
+
+        Ok(ClassifyResult {
+            device,
+            is_everyday,
+            suggested_folder,
+            confidence: confidence.to_string(),
+        })
     })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+fn ascii_value(field: &exif::Field) -> Option<String> {
+    if let exif::Value::Ascii(ref v) = field.value {
+        v.first()
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .map(|s| s.trim_end_matches('\0').to_string())
+    } else {
+        None
+    }
 }
