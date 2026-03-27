@@ -1,12 +1,12 @@
 import { create } from "zustand";
-import type { MediaFile, ScanResult, Session } from "../types";
+import type { ScanResult, Session } from "../types";
 
 interface InboxStore {
   scanResult: ScanResult | null;
   selectedSession: Session | null;
   isScanning: boolean;
-  approvedSessions: Set<string>;
-  rejectedSessions: Set<string>;
+  approvedSessions: string[];
+  rejectedSessions: string[];
   setScanResult: (result: ScanResult | null) => void;
   setSelectedSession: (session: Session | null) => void;
   setScanning: (v: boolean) => void;
@@ -19,20 +19,24 @@ export const useInboxStore = create<InboxStore>((set) => ({
   scanResult: null,
   selectedSession: null,
   isScanning: false,
-  approvedSessions: new Set(),
-  rejectedSessions: new Set(),
+  approvedSessions: [],
+  rejectedSessions: [],
   setScanResult: (scanResult) => set({ scanResult }),
   setSelectedSession: (selectedSession) => set({ selectedSession }),
   setScanning: (isScanning) => set({ isScanning }),
   approveSession: (id) =>
     set((state) => ({
-      approvedSessions: new Set([...state.approvedSessions, id]),
-      rejectedSessions: new Set([...state.rejectedSessions].filter((s) => s !== id)),
+      approvedSessions: state.approvedSessions.includes(id)
+        ? state.approvedSessions
+        : [...state.approvedSessions, id],
+      rejectedSessions: state.rejectedSessions.filter((s) => s !== id),
     })),
   rejectSession: (id) =>
     set((state) => ({
-      rejectedSessions: new Set([...state.rejectedSessions, id]),
-      approvedSessions: new Set([...state.approvedSessions].filter((s) => s !== id)),
+      rejectedSessions: state.rejectedSessions.includes(id)
+        ? state.rejectedSessions
+        : [...state.rejectedSessions, id],
+      approvedSessions: state.approvedSessions.filter((s) => s !== id),
     })),
-  resetApprovals: () => set({ approvedSessions: new Set(), rejectedSessions: new Set() }),
+  resetApprovals: () => set({ approvedSessions: [], rejectedSessions: [] }),
 }));

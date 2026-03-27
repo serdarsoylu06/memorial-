@@ -1,5 +1,3 @@
-import type { Confidence } from "../../types";
-
 interface ReviewFiltersProps {
   activeFilter: string;
   onFilterChange: (f: string) => void;

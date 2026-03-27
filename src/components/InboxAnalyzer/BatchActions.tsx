@@ -6,7 +6,7 @@ export default function BatchActions() {
 
   const sessions = scanResult?.sessions ?? [];
   const highConfidenceSessions = sessions.filter((s) => s.confidence === "high");
-  const approvedCount = approvedSessions.size;
+  const approvedCount = approvedSessions.length;
 
   return (
     <div className="flex items-center justify-between p-4 bg-[#1a1d27] border border-[#2e3347] rounded-xl">

@@ -1,46 +1,104 @@
 use super::analyzer::FileOpResult;
+use super::utils::compute_file_sha256;
 
 /// Move files to their target archive paths.
-///
-/// When dry_run is true, only simulates the operation and returns what would happen.
 #[tauri::command]
 pub async fn move_files(
     files: Vec<(String, String)>,
     dry_run: bool,
 ) -> Result<FileOpResult, String> {
-    // TODO: Validate source paths exist
-    // TODO: Validate target directories exist or create them
-    // TODO: If dry_run, return simulated result without touching the filesystem
-    // TODO: Move files using std::fs::rename (cross-device safe fallback to copy+delete)
-    // TODO: Log each operation to session log
-    let _ = (files, dry_run);
-    Ok(FileOpResult {
-        success: true,
-        moved: vec![],
-        failed: vec![],
-        dry_run,
+    tokio::task::spawn_blocking(move || {
+        let mut moved: Vec<String> = Vec::new();
+        let mut failed: Vec<String> = Vec::new();
+
+        for (src, dst) in &files {
+            let src_path = std::path::Path::new(src);
+            if !src_path.exists() {
+                failed.push(src.clone());
+                continue;
+            }
+            if dry_run {
+                moved.push(dst.clone());
+                continue;
+            }
+            let dst_path = std::path::Path::new(dst);
+            if let Some(parent) = dst_path.parent() {
+                if std::fs::create_dir_all(parent).is_err() {
+                    failed.push(src.clone());
+                    continue;
+                }
+            }
+            // Try rename first; fall back to copy+delete on cross-device error
+            let result = std::fs::rename(src_path, dst_path).or_else(|_| {
+                std::fs::copy(src_path, dst_path).and_then(|_| std::fs::remove_file(src_path))
+            });
+            match result {
+                Ok(_) => moved.push(dst.clone()),
+                Err(_) => failed.push(src.clone()),
+            }
+        }
+
+        Ok(FileOpResult {
+            success: failed.is_empty(),
+            moved,
+            failed,
+            dry_run,
+        })
     })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
 }
 
-/// Copy files to their target archive paths.
-///
-/// When dry_run is true, only simulates the operation.
+/// Copy files to their target archive paths with SHA-256 integrity check.
 #[tauri::command]
 pub async fn copy_files(
     files: Vec<(String, String)>,
     dry_run: bool,
 ) -> Result<FileOpResult, String> {
-    // TODO: Validate source paths exist
-    // TODO: Validate target directories or create them
-    // TODO: If dry_run, return simulated result
-    // TODO: Copy files using std::fs::copy
-    // TODO: Verify integrity via SHA256 after copy
-    // TODO: Log each operation to session log
-    let _ = (files, dry_run);
-    Ok(FileOpResult {
-        success: true,
-        moved: vec![],
-        failed: vec![],
-        dry_run,
+    tokio::task::spawn_blocking(move || {
+        let mut moved: Vec<String> = Vec::new();
+        let mut failed: Vec<String> = Vec::new();
+
+        for (src, dst) in &files {
+            let src_path = std::path::Path::new(src);
+            if !src_path.exists() {
+                failed.push(src.clone());
+                continue;
+            }
+            if dry_run {
+                moved.push(dst.clone());
+                continue;
+            }
+            let dst_path = std::path::Path::new(dst);
+            if let Some(parent) = dst_path.parent() {
+                if std::fs::create_dir_all(parent).is_err() {
+                    failed.push(src.clone());
+                    continue;
+                }
+            }
+            match std::fs::copy(src_path, dst_path) {
+                Ok(_) => {
+                    // Verify integrity
+                    let src_hash = compute_file_sha256(src_path);
+                    let dst_hash = compute_file_sha256(dst_path);
+                    if src_hash.is_ok() && dst_hash.is_ok() && src_hash == dst_hash {
+                        moved.push(dst.clone());
+                    } else {
+                        let _ = std::fs::remove_file(dst_path);
+                        failed.push(src.clone());
+                    }
+                }
+                Err(_) => failed.push(src.clone()),
+            }
+        }
+
+        Ok(FileOpResult {
+            success: failed.is_empty(),
+            moved,
+            failed,
+            dry_run,
+        })
     })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
 }

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import ComparisonView from "./ComparisonView";
 import { useDuplicateCheck } from "../../hooks/useDuplicateCheck";
-import type { DuplicatePair } from "../../types";
 
 export default function DuplicateManager() {
   const { pairs, isChecking } = useDuplicateCheck();

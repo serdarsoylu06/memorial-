@@ -1,6 +1,5 @@
 import type { DuplicatePair } from "../../types";
-import { formatBytes } from "../../utils/formatters";
-import { Trash2, Check } from "lucide-react";
+import { Check } from "lucide-react";
 
 interface ComparisonViewProps {
   pair: DuplicatePair;
