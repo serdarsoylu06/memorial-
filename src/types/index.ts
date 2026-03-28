@@ -82,6 +82,15 @@ export interface FileOpResult {
   dry_run: boolean;
 }
 
+// ─── Archive Stats ───────────────────────────────────────────────────────────────
+
+export interface ArchiveStats {
+  total_photos: number;
+  total_videos: number;
+  total_size_bytes: number;
+  folder_count: number;
+}
+
 // ─── Archive Browser ────────────────────────────────────────────────────────────
 
 export interface ArchiveFolder {

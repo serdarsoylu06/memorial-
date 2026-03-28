@@ -1,31 +1,30 @@
-import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useInboxStore } from "../store/useInboxStore";
+import { useCallback } from "react";
 import { useAppStore } from "../store/useAppStore";
+import { useInboxStore } from "../store/useInboxStore";
 import type { ScanResult } from "../types";
 
-/**
- * Provides a `scan()` function that invokes the Rust `scan_inbox` command
- * and stores the result in the inbox store.
- */
 export function useInboxScan() {
-  const { setScanning, setScanResult } = useInboxStore();
   const { settings } = useAppStore();
+  const { setScanning, setScanResult, isScanning } = useInboxStore();
 
   const scan = useCallback(async () => {
-    if (!settings.hdd_root) return;
+    if (!settings.hdd_root || isScanning) return;
     const inboxPath = `${settings.hdd_root}/${settings.inbox_dir}`;
     setScanning(true);
     try {
-      const result = await invoke<ScanResult>("scan_inbox", { inboxPath });
+      const result = await invoke<ScanResult>("scan_inbox", {
+        inboxPath,
+        sessionGapHours: settings.operations.session_gap_hours,
+      });
       setScanResult(result);
     } catch (err) {
-      console.error("Inbox scan failed:", err);
-      setScanResult(null);
+      console.error("Scan failed:", err);
+      setScanResult({ total_files: 0, sessions: [], unclassified: [] });
     } finally {
       setScanning(false);
     }
-  }, [settings.hdd_root, settings.inbox_dir, setScanning, setScanResult]);
+  }, [settings, isScanning, setScanning, setScanResult]);
 
   return { scan };
 }

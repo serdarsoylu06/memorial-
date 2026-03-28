@@ -1,10 +1,7 @@
-import { useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
 
-/**
- * Polls HDD connection status by checking if the configured hdd_root path
- * is accessible. Updates the global store on change.
- */
 export function useHDDStatus() {
   const { settings, hddStatus, setHDDStatus } = useAppStore();
 
@@ -14,14 +11,30 @@ export function useHDDStatus() {
       return;
     }
     try {
-      // TODO: invoke Tauri fs.exists / fs.stat to check hdd_root
-      // TODO: Read disk usage via Tauri shell command (df on macOS/Linux, wmic on Windows)
+      const exists = await invoke<boolean>("check_path_exists", { path: settings.hdd_root });
+      if (!exists) {
+        setHDDStatus({ connected: false, path: null, label: null, total_bytes: null, free_bytes: null });
+        return;
+      }
+      let total_bytes: number | null = null;
+      let free_bytes: number | null = null;
+      try {
+        const usage = await invoke<{ total_bytes: number; free_bytes: number; used_bytes: number }>(
+          "get_disk_usage",
+          { path: settings.hdd_root }
+        );
+        if (usage.total_bytes > 0) {
+          total_bytes = usage.total_bytes;
+          free_bytes = usage.free_bytes;
+        }
+      } catch {/* ignore disk usage errors */}
+
       setHDDStatus({
         connected: true,
         path: settings.hdd_root,
         label: settings.hdd_root.split("/").pop() ?? null,
-        total_bytes: null,
-        free_bytes: null,
+        total_bytes,
+        free_bytes,
       });
     } catch {
       setHDDStatus({ connected: false, path: null, label: null, total_bytes: null, free_bytes: null });

@@ -1,9 +1,13 @@
 pub mod commands;
 
 use commands::{
-    analyzer::scan_inbox,
+    analyzer::{scan_inbox, get_archive_stats},
     classifier::classify_file,
     duplicate::{check_duplicates, compute_sha256},
+    helpers::{
+        get_archive_tree, get_review_files, open_in_finder, delete_file,
+        check_path_exists, get_disk_usage,
+    },
     manifest::{read_manifest, write_manifest},
     mover::{copy_files, move_files},
     zip_handler::extract_zip,
@@ -17,9 +21,16 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             scan_inbox,
+            get_archive_stats,
             classify_file,
             check_duplicates,
             compute_sha256,
+            get_archive_tree,
+            get_review_files,
+            open_in_finder,
+            delete_file,
+            check_path_exists,
+            get_disk_usage,
             read_manifest,
             write_manifest,
             copy_files,

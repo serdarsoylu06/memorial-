@@ -1,5 +1,5 @@
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -16,28 +16,29 @@ pub struct Manifest {
 /// Write a _manifest.json to the given archive folder.
 #[tauri::command]
 pub async fn write_manifest(folder_path: String, manifest: Manifest) -> Result<(), String> {
-    // TODO: Serialize manifest to JSON
-    // TODO: Write to folder_path/_manifest.json
-    // TODO: Also append entry to ROOT/.memorial_logs/YYYY-MM-DD_session.json
-    let _ = (folder_path, manifest);
+    let dir = Path::new(&folder_path);
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("Cannot create folder {folder_path}: {e}"))?;
+
+    let manifest_path = dir.join("_manifest.json");
+    let json = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("Serialization error: {e}"))?;
+    std::fs::write(&manifest_path, json)
+        .map_err(|e| format!("Write error: {e}"))?;
+
     Ok(())
 }
 
 /// Read the _manifest.json from an archive folder.
 #[tauri::command]
 pub async fn read_manifest(folder_path: String) -> Result<Option<Manifest>, String> {
-    // TODO: Check if folder_path/_manifest.json exists
-    // TODO: Read and deserialize JSON
-    // TODO: Return None if file is missing
-    let _ = folder_path;
-    Ok(Some(Manifest {
-        event: String::new(),
-        date: String::new(),
-        devices: vec![],
-        photo_count: 0,
-        video_count: 0,
-        location_source: String::new(),
-        confidence: String::new(),
-        created_at: Utc::now().to_rfc3339(),
-    }))
+    let manifest_path = Path::new(&folder_path).join("_manifest.json");
+    if !manifest_path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Read error: {e}"))?;
+    let manifest: Manifest =
+        serde_json::from_str(&content).map_err(|e| format!("Parse error: {e}"))?;
+    Ok(Some(manifest))
 }

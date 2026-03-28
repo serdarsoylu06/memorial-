@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MediaFile, ScanResult, Session } from "../types";
+import type { ScanResult, Session } from "../types";
 
 interface InboxStore {
   scanResult: ScanResult | null;

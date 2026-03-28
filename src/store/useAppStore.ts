@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { AppSettings, HDDStatus, SessionLog } from "../types";
 
 interface AppStore {
@@ -37,13 +38,22 @@ const defaultSettings: AppSettings = {
   },
 };
 
-export const useAppStore = create<AppStore>((set) => ({
-  settings: defaultSettings,
-  hddStatus: { connected: false, path: null, label: null, total_bytes: null, free_bytes: null },
-  recentLogs: [],
-  isLoading: false,
-  setSettings: (s) => set((state) => ({ settings: { ...state.settings, ...s } })),
-  setHDDStatus: (hddStatus) => set({ hddStatus }),
-  setRecentLogs: (recentLogs) => set({ recentLogs }),
-  setLoading: (isLoading) => set({ isLoading }),
-}));
+export const useAppStore = create<AppStore>()(
+  persist(
+    (set) => ({
+      settings: defaultSettings,
+      hddStatus: { connected: false, path: null, label: null, total_bytes: null, free_bytes: null },
+      recentLogs: [],
+      isLoading: false,
+      setSettings: (s) => set((state) => ({ settings: { ...state.settings, ...s } })),
+      setHDDStatus: (hddStatus) => set({ hddStatus }),
+      setRecentLogs: (recentLogs) => set({ recentLogs }),
+      setLoading: (isLoading) => set({ isLoading }),
+    }),
+    {
+      name: "memorial-app-settings",
+      // Only persist settings, not runtime state
+      partialize: (state) => ({ settings: state.settings }),
+    }
+  )
+);
