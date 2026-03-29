@@ -1,13 +1,16 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
-import DashboardPage from "./pages/DashboardPage";
-import InboxPage from "./pages/InboxPage";
-import SessionDetailPage from "./pages/SessionDetailPage";
-import ReviewPage from "./pages/ReviewPage";
-import ArchivePage from "./pages/ArchivePage";
-import DuplicatesPage from "./pages/DuplicatesPage";
-import SettingsPage from "./pages/SettingsPage";
+import Spinner from "./components/ui/Spinner";
+
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const InboxPage = lazy(() => import("./pages/InboxPage"));
+const SessionDetailPage = lazy(() => import("./pages/SessionDetailPage"));
+const ReviewPage = lazy(() => import("./pages/ReviewPage"));
+const ArchivePage = lazy(() => import("./pages/ArchivePage"));
+const DuplicatesPage = lazy(() => import("./pages/DuplicatesPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 export default function App() {
   return (
@@ -17,15 +20,23 @@ export default function App() {
         <div className="flex flex-col flex-1 overflow-hidden">
           <TopBar />
           <main className="flex-1 overflow-auto p-6">
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/inbox" element={<InboxPage />} />
-              <Route path="/session/:id" element={<SessionDetailPage />} />
-              <Route path="/review" element={<ReviewPage />} />
-              <Route path="/archive" element={<ArchivePage />} />
-              <Route path="/duplicates" element={<DuplicatesPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
+            <Suspense
+              fallback={
+                <div className="h-full flex items-center justify-center">
+                  <Spinner size={28} />
+                </div>
+              }
+            >
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/inbox" element={<InboxPage />} />
+                <Route path="/session/:id" element={<SessionDetailPage />} />
+                <Route path="/review" element={<ReviewPage />} />
+                <Route path="/archive" element={<ArchivePage />} />
+                <Route path="/duplicates" element={<DuplicatesPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Routes>
+            </Suspense>
           </main>
         </div>
       </div>
