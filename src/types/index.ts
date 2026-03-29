@@ -102,6 +102,12 @@ export interface ArchiveFolder {
   has_edits: boolean;
 }
 
+export interface MediaFolderHint {
+  name: string;
+  path: string;
+  media_count: number;
+}
+
 // ─── App Settings ───────────────────────────────────────────────────────────────
 
 export interface AppSettings {

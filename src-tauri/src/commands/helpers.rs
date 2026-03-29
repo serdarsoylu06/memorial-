@@ -22,6 +22,13 @@ pub struct DiskUsage {
     pub used_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaFolderHint {
+    pub name: String,
+    pub path: String,
+    pub media_count: u64,
+}
+
 /// Recursively build the archive folder tree.
 #[tauri::command]
 pub async fn get_archive_tree(archive_path: String) -> Result<ArchiveFolder, String> {
@@ -91,6 +98,69 @@ fn file_kind(ext: &str) -> &'static str {
     if PHOTO_EXTS.iter().any(|e| *e == ext.as_str()) { "photo" }
     else if VIDEO_EXTS.iter().any(|e| *e == ext.as_str()) { "video" }
     else { "unknown" }
+}
+
+/// Find top-level folders under root that contain media files.
+#[tauri::command]
+pub async fn get_media_folder_hints(
+    root_path: String,
+    ignore_dirs: Option<Vec<String>>,
+) -> Result<Vec<MediaFolderHint>, String> {
+    let root = Path::new(&root_path);
+    if !root.exists() {
+        return Err(format!("Root path does not exist: {root_path}"));
+    }
+
+    let mut ignored = std::collections::HashSet::new();
+    if let Some(dirs) = ignore_dirs {
+        for d in dirs {
+            ignored.insert(d.trim_matches('/').to_lowercase());
+        }
+    }
+
+    let mut hints: Vec<MediaFolderHint> = Vec::new();
+    let entries = std::fs::read_dir(root).map_err(|e| format!("read_dir failed: {e}"))?;
+
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if ignored.contains(&name.to_lowercase()) {
+            continue;
+        }
+
+        let media_count = WalkDir::new(&path)
+            .follow_links(false)
+            .max_depth(5)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(is_media)
+                    .unwrap_or(false)
+            })
+            .count() as u64;
+
+        if media_count > 0 {
+            hints.push(MediaFolderHint {
+                name,
+                path: path.to_string_lossy().to_string(),
+                media_count,
+            });
+        }
+    }
+
+    hints.sort_by(|a, b| b.media_count.cmp(&a.media_count));
+    Ok(hints)
 }
 
 /// List contents of the REVIEW directory as MediaFiles.

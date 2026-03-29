@@ -11,7 +11,7 @@ import Button from "../ui/Button";
 import Badge, { confidenceTone } from "../ui/Badge";
 import Spinner from "../ui/Spinner";
 import ProgressBar from "../ui/ProgressBar";
-import type { Session } from "../../types";
+import type { MediaFolderHint, Session } from "../../types";
 import { deviceColor, deviceLabel } from "../../utils/device";
 
 function DeviceChip({ device }: { device: string }) {
@@ -184,8 +184,9 @@ export default function InboxAnalyzer() {
   const hdd = useHDDStatus();
   const { scan } = useInboxScan();
   const { scanResult, scanError, isScanning, approvedSessions, approveSession } = useInboxStore();
-  const { settings } = useAppStore();
+  const { settings, setSettings } = useAppStore();
   const [progress, setProgress] = useState(0);
+  const [folderHints, setFolderHints] = useState<MediaFolderHint[]>([]);
   const inboxPath = `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
 
   // Auto-scan on mount if HDD connected
@@ -206,6 +207,27 @@ export default function InboxAnalyzer() {
   useEffect(() => {
     if (!isScanning && scanResult) setProgress(100);
   }, [isScanning, scanResult]);
+
+  useEffect(() => {
+    const loadHints = async () => {
+      if (!hdd.connected || !scanResult || scanResult.total_files > 0 || !settings.hdd_root) {
+        setFolderHints([]);
+        return;
+      }
+
+      try {
+        const hints = await invoke<MediaFolderHint[]>("get_media_folder_hints", {
+          rootPath: settings.hdd_root,
+          ignoreDirs: [settings.inbox_dir, settings.archive_dir, settings.review_dir, settings.edits_dir, settings.staging_dir],
+        });
+        setFolderHints(hints);
+      } catch {
+        setFolderHints([]);
+      }
+    };
+
+    void loadHints();
+  }, [hdd.connected, scanResult, settings.hdd_root, settings.inbox_dir, settings.archive_dir, settings.review_dir, settings.edits_dir, settings.staging_dir]);
 
   const highConfidence = scanResult?.sessions.filter((s) => s.confidence.toLowerCase() === "high") ?? [];
 
@@ -313,6 +335,36 @@ export default function InboxAnalyzer() {
       {scanResult && scanResult.sessions.length === 0 && !isScanning && (
         <Card className="text-center py-12 text-[#565e80]">
           INBOX boş — işlenecek dosya yok.
+        </Card>
+      )}
+
+      {scanResult && scanResult.total_files === 0 && folderHints.length > 0 && (
+        <Card className="py-4 border border-[rgba(240,178,58,0.28)] bg-[rgba(240,178,58,0.06)]">
+          <p className="text-sm text-[#f3cd8a] font-medium">INBOX boş ama kök klasörde medya bulundu</p>
+          <p className="text-xs text-[#ceb281] mt-1">Tarama sadece INBOX klasörünü analiz eder. Aşağıdaki klasörlerden birini INBOX olarak ayarlayabilirsiniz.</p>
+          <div className="mt-3 space-y-2">
+            {folderHints.slice(0, 5).map((hint) => (
+              <div key={hint.path} className="flex items-center justify-between gap-3 px-3 py-2 rounded bg-[rgba(13,15,24,0.45)] border border-[rgba(240,178,58,0.18)]">
+                <div className="min-w-0">
+                  <p className="text-sm text-[#e8eaf6] truncate">{hint.name}</p>
+                  <p className="text-xs text-[#7e85a7] truncate">{hint.path}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-[#f0b23a] font-medium">{hint.media_count} dosya</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSettings({ inbox_dir: hint.name });
+                      void scan();
+                    }}
+                  >
+                    INBOX Yap
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

@@ -6,7 +6,7 @@ use commands::{
     duplicate::{check_duplicates, compute_sha256},
     helpers::{
         get_archive_tree, get_review_files, open_in_finder, delete_file,
-        check_path_exists, get_disk_usage,
+        check_path_exists, get_disk_usage, get_media_folder_hints,
     },
     manifest::{read_manifest, write_manifest},
     mover::{copy_files, move_files},
@@ -31,6 +31,7 @@ pub fn run() {
             delete_file,
             check_path_exists,
             get_disk_usage,
+            get_media_folder_hints,
             read_manifest,
             write_manifest,
             copy_files,
