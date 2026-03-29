@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
-use super::analyzer::{DeviceType, MediaFile};
+use super::analyzer::MediaFile;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassifyResult {
-    pub device: DeviceType,
+    pub device: String,
     pub is_everyday: bool,
     pub suggested_folder: String,
     pub confidence: String,
@@ -35,7 +35,7 @@ pub async fn classify_file(file: MediaFile) -> Result<ClassifyResult, String> {
         "none"
     };
 
-    let device_folder = file.device.folder_name();
+    let device_folder = &file.device; // device key IS the folder name now
     let media_folder = if file.kind == "video" { "Videos" } else { "Photos" };
     let suggested_folder = if is_everyday {
         format!("EVERYDAY/{}/{}", media_folder, device_folder)

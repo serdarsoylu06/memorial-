@@ -1,47 +1,80 @@
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-// ─── Device Types ───────────────────────────────────────────────────────────────
+// ─── YAML Device Rules ─────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum DeviceType {
-    SonyA6700,
-    Canon6D,
-    Canon60D,
-    IPhone,
-    SamsungNote8,
-    Unknown,
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeviceRule {
+    pub exif_model: Option<Vec<String>>,
+    pub exif_make: Option<Vec<String>>,
+    pub filename_prefix: Option<Vec<String>>,
+    pub video_codec: Option<Vec<String>>,
+    pub color_profile: Option<Vec<String>>,
 }
 
-impl DeviceType {
-    pub fn folder_name(&self) -> &'static str {
-        match self {
-            DeviceType::SonyA6700 => "Sony_a6700",
-            DeviceType::Canon6D => "Canon_6D",
-            DeviceType::Canon60D => "Canon_60D",
-            DeviceType::IPhone => "iPhone",
-            DeviceType::SamsungNote8 => "Samsung_Note8",
-            DeviceType::Unknown => "Unknown_Device",
+#[derive(Debug, Clone, Deserialize)]
+pub struct DevicesConfig {
+    pub devices: HashMap<String, DeviceRule>,
+}
+
+/// Detect device by matching EXIF / filename against YAML rules.
+/// Priority: exif_model → exif_make → filename_prefix.
+fn detect_device(
+    rules: &HashMap<String, DeviceRule>,
+    make: &str,
+    model: &str,
+    filename: &str,
+) -> String {
+    let make_lc = make.to_lowercase();
+    let model_lc = model.to_lowercase();
+    let fname_lc = filename.to_lowercase();
+
+    // Pass 1: exif_model match (most specific)
+    for (key, rule) in rules {
+        if let Some(models) = &rule.exif_model {
+            for m in models {
+                if model_lc.contains(&m.to_lowercase()) {
+                    return key.clone();
+                }
+            }
         }
     }
 
-    pub fn label(&self) -> &'static str {
-        match self {
-            DeviceType::SonyA6700 => "Sony α6700",
-            DeviceType::Canon6D => "Canon 6D",
-            DeviceType::Canon60D => "Canon 60D",
-            DeviceType::IPhone => "iPhone",
-            DeviceType::SamsungNote8 => "Samsung Note8",
-            DeviceType::Unknown => "Unknown",
+    // Pass 2: exif_make match
+    for (key, rule) in rules {
+        if let Some(makes) = &rule.exif_make {
+            for m in makes {
+                if make_lc.contains(&m.to_lowercase()) {
+                    return key.clone();
+                }
+            }
         }
     }
 
-    pub fn carries_gps(&self) -> bool {
-        matches!(self, DeviceType::IPhone | DeviceType::SamsungNote8)
+    // Pass 3: filename_prefix match (only if EXIF was empty)
+    if make.is_empty() && model.is_empty() {
+        for (key, rule) in rules {
+            if let Some(prefixes) = &rule.filename_prefix {
+                for p in prefixes {
+                    if fname_lc.starts_with(&p.to_lowercase()) {
+                        return key.clone();
+                    }
+                }
+            }
+        }
     }
+
+    "Unknown_Device".to_string()
+}
+
+/// Helper: does this device name likely carry GPS? (phone-class devices)
+fn device_carries_gps(device: &str) -> bool {
+    let d = device.to_lowercase();
+    d.contains("iphone") || d.contains("samsung")
 }
 
 // ─── Confidence ─────────────────────────────────────────────────────────────────
@@ -62,11 +95,12 @@ pub struct MediaFile {
     pub filename: String,
     pub size_bytes: u64,
     pub created_at: Option<String>,
-    pub device: DeviceType,
+    pub device: String,
     pub has_gps: bool,
     pub gps_lat: Option<f64>,
     pub gps_lon: Option<f64>,
     pub kind: String, // "photo" | "video" | "unknown"
+    pub sidecars: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,38 +208,6 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
         .map(|ndt| Utc.from_utc_datetime(&ndt))
 }
 
-/// Detect device from EXIF make/model string.
-fn detect_device_from_exif(make: &str, model: &str) -> DeviceType {
-    if model.contains("ILCE-6700") {
-        return DeviceType::SonyA6700;
-    }
-    if model.contains("Canon EOS 6D") {
-        return DeviceType::Canon6D;
-    }
-    if model.contains("Canon EOS 60D") {
-        return DeviceType::Canon60D;
-    }
-    if make.contains("Apple") {
-        return DeviceType::IPhone;
-    }
-    if model.contains("SM-N950") {
-        return DeviceType::SamsungNote8;
-    }
-    DeviceType::Unknown
-}
-
-/// Detect device from filename prefix as fallback.
-fn detect_device_from_filename(filename: &str) -> DeviceType {
-    if filename.starts_with("DSC") {
-        return DeviceType::SonyA6700;
-    }
-    if filename.starts_with("VID_") {
-        return DeviceType::SamsungNote8;
-    }
-    // IMG_ is too ambiguous - could be Canon, iPhone, Samsung
-    DeviceType::Unknown
-}
-
 // ─── GPS / Location Helpers ─────────────────────────────────────────────────────
 
 const GIRESUN_LAT_MIN: f64 = 40.85;
@@ -221,7 +223,7 @@ fn is_in_giresun(lat: f64, lon: f64) -> bool {
 }
 
 /// Parse a single media file from disk, extracting metadata and EXIF.
-fn parse_media_file(path: &Path) -> Option<MediaFile> {
+fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<MediaFile> {
     let ext = path.extension()?.to_str()?;
     if !is_media_file(ext) {
         return None;
@@ -233,7 +235,8 @@ fn parse_media_file(path: &Path) -> Option<MediaFile> {
     let kind = file_kind(ext).to_string();
 
     let mut created_at: Option<String> = None;
-    let mut device = DeviceType::Unknown;
+    let mut make_str = String::new();
+    let mut model_str = String::new();
     let mut gps_lat: Option<f64> = None;
     let mut gps_lon: Option<f64> = None;
 
@@ -247,15 +250,14 @@ fn parse_media_file(path: &Path) -> Option<MediaFile> {
                     created_at = Some(field.display_value().to_string());
                 }
                 // Make + Model
-                let make_str = exif_reader
+                make_str = exif_reader
                     .get_field(exif::Tag::Make, exif::In::PRIMARY)
                     .map(|f| f.display_value().to_string())
                     .unwrap_or_default();
-                let model_str = exif_reader
+                model_str = exif_reader
                     .get_field(exif::Tag::Model, exif::In::PRIMARY)
                     .map(|f| f.display_value().to_string())
                     .unwrap_or_default();
-                device = detect_device_from_exif(&make_str, &model_str);
 
                 // GPS
                 let lat_ref = exif_reader
@@ -282,10 +284,8 @@ fn parse_media_file(path: &Path) -> Option<MediaFile> {
         }
     }
 
-    // Device fallback from filename
-    if device == DeviceType::Unknown {
-        device = detect_device_from_filename(&filename);
-    }
+    // Detect device using YAML rules (EXIF + filename fallback)
+    let device = detect_device(rules, &make_str, &model_str, &filename);
 
     // Timestamp fallback from filesystem
     if created_at.is_none() {
@@ -294,6 +294,31 @@ fn parse_media_file(path: &Path) -> Option<MediaFile> {
             created_at = Some(dt.format("%Y:%m:%d %H:%M:%S").to_string());
         }
     }
+
+    // Find sidecar files (.aae, .xmp, .thm) with the same stem
+    let sidecars = {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let sidecar_exts: &[&str] = &["aae", "xmp", "thm"];
+        let mut found: Vec<String> = Vec::new();
+        if let Some(parent) = path.parent() {
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let ep = entry.path();
+                    if !ep.is_file() {
+                        continue;
+                    }
+                    let e_stem = ep.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                    let e_ext = ep.extension().and_then(|s| s.to_str()).unwrap_or("");
+                    if e_stem == stem
+                        && sidecar_exts.iter().any(|sx| sx.eq_ignore_ascii_case(e_ext))
+                    {
+                        found.push(ep.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        found
+    };
 
     Some(MediaFile {
         path: path.to_string_lossy().to_string(),
@@ -305,6 +330,7 @@ fn parse_media_file(path: &Path) -> Option<MediaFile> {
         gps_lat,
         gps_lon,
         kind,
+        sidecars,
     })
 }
 
@@ -367,10 +393,10 @@ fn build_session(files: Vec<MediaFile>) -> Session {
         .max()
         .map(String::from);
 
-    // Collect unique device labels
+    // Collect unique device names
     let mut device_set: Vec<String> = files
         .iter()
-        .map(|f| f.device.label().to_string())
+        .map(|f| f.device.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
@@ -379,7 +405,7 @@ fn build_session(files: Vec<MediaFile>) -> Session {
     // GPS: borrow from iPhone/Samsung if available (Layer 3/4)
     let representative_gps = files
         .iter()
-        .filter(|f| f.has_gps && f.device.carries_gps())
+        .filter(|f| f.has_gps && device_carries_gps(&f.device))
         .map(|f| (f.gps_lat, f.gps_lon))
         .next();
 
@@ -411,10 +437,10 @@ fn calculate_confidence_and_path(
 ) -> (Confidence, String) {
     // Check own GPS on any file
     let own_gps = files.iter().find(|f| f.has_gps);
-    // Check iPhone GPS borrow
-    let iphone_gps = files
+    // Check iPhone/phone GPS borrow
+    let phone_gps = files
         .iter()
-        .find(|f| f.has_gps && f.device == DeviceType::IPhone);
+        .find(|f| f.has_gps && device_carries_gps(&f.device));
 
     // Derive event name from parent folder (if files all in a named folder)
     let folder_event = extract_folder_event(files);
@@ -425,12 +451,12 @@ fn calculate_confidence_and_path(
     } else if own_gps.is_some() {
         // Layer 1 only
         (Confidence::High, gps_location(own_gps.unwrap()))
-    } else if iphone_gps.is_some() && folder_event.is_some() {
+    } else if phone_gps.is_some() && folder_event.is_some() {
         // Layer 3 + Layer 2
-        (Confidence::Medium, gps_location(iphone_gps.unwrap()))
-    } else if iphone_gps.is_some() {
-        // Layer 3/4: iPhone GPS borrow
-        (Confidence::Medium, gps_location(iphone_gps.unwrap()))
+        (Confidence::Medium, gps_location(phone_gps.unwrap()))
+    } else if phone_gps.is_some() {
+        // Layer 3/4: Phone GPS borrow
+        (Confidence::Medium, gps_location(phone_gps.unwrap()))
     } else if folder_event.is_some() {
         // Layer 2 only
         (Confidence::Low, LocationKind::Unknown)
@@ -502,18 +528,16 @@ fn build_suggested_path(
     match location {
         LocationKind::Giresun => {
             if let Some(event) = event_name {
-                // Named event in Giresun
-                format!("ARCHIVE/{}/{}", yyyy, event)
+                format!("ARCHIVE/{}/{}-{}", yyyy, yyyy_mm, event)
             } else {
-                // Everyday — ARCHIVE/YYYY/EVERYDAY/YYYY-MM/
-                format!("ARCHIVE/{}/EVERYDAY/{}", yyyy, yyyy_mm)
+                format!("ARCHIVE/{}/{}-Giresun", yyyy, yyyy_mm)
             }
         }
         LocationKind::Unknown => {
             if let Some(event) = event_name {
-                format!("ARCHIVE/{}/{}", yyyy, event)
+                format!("ARCHIVE/{}/{}-{}", yyyy, yyyy_mm, event)
             } else {
-                "REVIEW".to_string()
+                format!("ARCHIVE/{}/{}-Bilinmeyen", yyyy, yyyy_mm)
             }
         }
     }
@@ -529,7 +553,7 @@ fn apply_gps_borrow(sessions: &mut Vec<Session>) {
         let gps_sources: Vec<(f64, f64, Option<DateTime<Utc>>)> = session
             .files
             .iter()
-            .filter(|f| f.has_gps && f.device.carries_gps())
+            .filter(|f| f.has_gps && device_carries_gps(&f.device))
             .filter_map(|f| {
                 let ts = f.created_at.as_deref().and_then(|s| parse_datetime(s));
                 Some((f.gps_lat?, f.gps_lon?, ts))
@@ -584,6 +608,12 @@ pub async fn scan_inbox(
         return Err(format!("INBOX path does not exist: {inbox_path}"));
     }
 
+    // Load device rules from embedded YAML
+    let yaml_str = include_str!("../../../rules/devices.yaml");
+    let devices_config: DevicesConfig =
+        serde_yaml::from_str(yaml_str).map_err(|e| format!("devices.yaml parse error: {e}"))?;
+    let rules = &devices_config.devices;
+
     // Walk directory, parse all media files
     let mut media_files: Vec<MediaFile> = Vec::new();
     for entry in WalkDir::new(root)
@@ -597,7 +627,7 @@ pub async fn scan_inbox(
         if fname.starts_with('.') || fname.starts_with("__MACOSX") {
             continue;
         }
-        if let Some(file) = parse_media_file(entry.path()) {
+        if let Some(file) = parse_media_file(entry.path(), rules) {
             media_files.push(file);
         }
     }
@@ -615,7 +645,7 @@ pub async fn scan_inbox(
         let borrowed_gps = session
             .files
             .iter()
-            .find(|f| f.has_gps && f.device.carries_gps())
+            .find(|f| f.has_gps && device_carries_gps(&f.device))
             .map(|f| (f.gps_lat, f.gps_lon));
         let (conf, path) = calculate_confidence_and_path(
             &session.files,

@@ -1,17 +1,6 @@
 // ─── Core Media Types ──────────────────────────────────────────────────────────
 
-export type DeviceType =
-  | "SonyA6700"
-  | "Canon6D"
-  | "Canon60D"
-  | "IPhone"
-  | "SamsungNote8"
-  | "Sony_a6700"
-  | "Canon_6D"
-  | "Canon_60D"
-  | "iPhone"
-  | "Samsung_Note8"
-  | "Unknown";
+export type DeviceType = string;
 
 export type Confidence = "high" | "medium" | "low" | "none" | "High" | "Medium" | "Low" | "None";
 
@@ -27,6 +16,7 @@ export interface MediaFile {
   gps_lat: number | null;
   gps_lon: number | null;
   kind: FileKind;
+  sidecars: string[];
   thumbnail?: string; // base64 data URL
 }
 

@@ -193,11 +193,12 @@ pub async fn get_review_files(review_path: String) -> Result<Vec<MediaFile>, Str
                 filename: fname.to_string(),
                 size_bytes,
                 created_at: None,
-                device: super::analyzer::DeviceType::Unknown,
+                device: "Unknown_Device".to_string(),
                 has_gps: false,
                 gps_lat: None,
                 gps_lon: None,
                 kind: file_kind(ext).to_string(),
+                sidecars: vec![],
             });
         }
     }

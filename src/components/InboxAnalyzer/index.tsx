@@ -13,7 +13,7 @@ import Spinner from "../ui/Spinner";
 import ProgressBar from "../ui/ProgressBar";
 import OperationProgress from "../ui/OperationProgress";
 import type { FileOpResult, MediaFolderHint, Session } from "../../types";
-import { deviceColor, deviceFolderSegment, deviceLabel } from "../../utils/device";
+import { deviceColor, deviceLabel } from "../../utils/device";
 
 function DeviceChip({ device }: { device: string }) {
   const color = deviceColor(device);
@@ -84,9 +84,10 @@ function SessionCard({ session, onOperationStart, onOperationEnd }: { session: S
 
   const photoCount = session.files.filter((f) => f.kind === "photo").length;
   const videoCount = session.files.filter((f) => f.kind === "video").length;
-  const previewTargets = session.files.slice(0, 3).map((f) =>
-    `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`
-  );
+  const previewTargets = session.files.slice(0, 3).map((f) => {
+    const deviceDir = (f.device || "Unknown_Device").replace(/\s+/g, "_");
+    return `${settings.hdd_root}/${customPath}/${deviceDir}/${f.filename}`;
+  });
 
   const approve = async () => {
     if (!settings.hdd_root) return;
@@ -103,10 +104,19 @@ function SessionCard({ session, onOperationStart, onOperationEnd }: { session: S
     }
 
     onOperationStart();
-    const pairs = session.files.map((f) => [
-      f.path,
-      `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
-    ] as [string, string]);
+    const pairs: [string, string][] = [];
+    for (const f of session.files) {
+      const deviceDir = (f.device || "Unknown_Device").replace(/\s+/g, "_");
+      const destDir = `${settings.hdd_root}/${customPath}/${deviceDir}`;
+      pairs.push([f.path, `${destDir}/${f.filename}`]);
+      // Include sidecar files (.aae, .xmp, .thm)
+      if (f.sidecars?.length) {
+        for (const sc of f.sidecars) {
+          const scName = sc.split("/").pop() ?? sc.split("\\").pop() ?? sc;
+          pairs.push([sc, `${destDir}/${scName}`]);
+        }
+      }
+    }
     try {
       if (settings.operations.dry_run_first) {
         const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
@@ -307,10 +317,18 @@ export default function InboxAnalyzer() {
     setIsOperating(true);
     for (const session of highConfidence) {
       if (!approvedSessions.has(session.id)) {
-        const pairs = session.files.map((f) => [
-          f.path,
-          `${settings.hdd_root}/${session.suggested_path}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
-        ] as [string, string]);
+        const pairs: [string, string][] = [];
+        for (const f of session.files) {
+          const deviceDir = (f.device || "Unknown_Device").replace(/\s+/g, "_");
+          const destDir = `${settings.hdd_root}/${session.suggested_path}/${deviceDir}`;
+          pairs.push([f.path, `${destDir}/${f.filename}`]);
+          if (f.sidecars?.length) {
+            for (const sc of f.sidecars) {
+              const scName = sc.split("/").pop() ?? sc.split("\\").pop() ?? sc;
+              pairs.push([sc, `${destDir}/${scName}`]);
+            }
+          }
+        }
         try {
           if (settings.operations.dry_run_first) {
             const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
