@@ -82,6 +82,10 @@ function SessionCard({ session }: { session: Session }) {
 
   const photoCount = session.files.filter((f) => f.kind === "photo").length;
   const videoCount = session.files.filter((f) => f.kind === "video").length;
+  const sampleFile = session.files[0];
+  const sampleTarget = sampleFile
+    ? `${settings.hdd_root}/${customPath}/${sampleFile.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(sampleFile.device)}/${sampleFile.filename}`
+    : null;
 
   const approve = async () => {
     if (!settings.hdd_root) return;
@@ -142,6 +146,11 @@ function SessionCard({ session }: { session: Session }) {
 
         {/* Suggested path */}
         <PathEditor value={customPath} onChange={setCustomPath} />
+        {sampleTarget && (
+          <p className="mt-1 text-[11px] text-[#7a82a3] font-mono truncate" title={sampleTarget}>
+            Ornek hedef: {sampleTarget}
+          </p>
+        )}
       </div>
 
       {/* Actions */}

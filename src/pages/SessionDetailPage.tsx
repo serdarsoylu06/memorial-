@@ -88,6 +88,10 @@ export default function SessionDetailPage() {
 
   const photoCount = session.files.filter((f) => f.kind === "photo").length;
   const videoCount = session.files.filter((f) => f.kind === "video").length;
+  const sampleFile = session.files[0];
+  const sampleTarget = sampleFile
+    ? `${settings.hdd_root}/${customPath}/${sampleFile.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(sampleFile.device)}/${sampleFile.filename}`
+    : null;
 
   const runOperation = async () => {
     if (!settings.hdd_root) return;
@@ -218,6 +222,11 @@ export default function SessionDetailPage() {
               onChange={(e) => setCustomPath(e.target.value)}
               className="w-full bg-[#0d0f18] border border-[#252840] focus:border-[#6c8cff] rounded px-3 py-1.5 text-xs text-[#e8eaf6] outline-none font-mono"
             />
+            {sampleTarget && (
+              <p className="mt-2 text-[11px] text-[#7a82a3] font-mono break-all">
+                Ornek hedef: {sampleTarget}
+              </p>
+            )}
           </Card>
 
           {/* Move vs Copy toggle */}
