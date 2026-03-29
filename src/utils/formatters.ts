@@ -37,8 +37,8 @@ export function formatDateTime(iso: string | null): string {
 /**
  * Return a badge colour class for a confidence level.
  */
-export function confidenceColor(level: "high" | "medium" | "low" | "none"): string {
-  switch (level) {
+export function confidenceColor(level: string): string {
+  switch (level.toLowerCase()) {
     case "high":
       return "text-[#4caf82] bg-[#4caf82]/10";
     case "medium":
@@ -53,8 +53,8 @@ export function confidenceColor(level: "high" | "medium" | "low" | "none"): stri
 /**
  * Return a human-readable label for a confidence level (Turkish).
  */
-export function confidenceLabel(level: "high" | "medium" | "low" | "none"): string {
-  switch (level) {
+export function confidenceLabel(level: string): string {
+  switch (level.toLowerCase()) {
     case "high":
       return "Yüksek";
     case "medium":

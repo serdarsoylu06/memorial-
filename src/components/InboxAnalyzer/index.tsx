@@ -183,9 +183,10 @@ function SessionCard({ session }: { session: Session }) {
 export default function InboxAnalyzer() {
   const hdd = useHDDStatus();
   const { scan } = useInboxScan();
-  const { scanResult, isScanning, approvedSessions, approveSession } = useInboxStore();
+  const { scanResult, scanError, isScanning, approvedSessions, approveSession } = useInboxStore();
   const { settings } = useAppStore();
   const [progress, setProgress] = useState(0);
+  const inboxPath = `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
 
   // Auto-scan on mount if HDD connected
   useEffect(() => {
@@ -206,7 +207,7 @@ export default function InboxAnalyzer() {
     if (!isScanning && scanResult) setProgress(100);
   }, [isScanning, scanResult]);
 
-  const highConfidence = scanResult?.sessions.filter((s) => s.confidence === "high") ?? [];
+  const highConfidence = scanResult?.sessions.filter((s) => s.confidence.toLowerCase() === "high") ?? [];
 
   const bulkApprove = async () => {
     for (const session of highConfidence) {
@@ -290,8 +291,19 @@ export default function InboxAnalyzer() {
         </Card>
       )}
 
+      {/* Scan error */}
+      {hdd.connected && scanError && (
+        <Card className="py-6 border border-[rgba(224,82,82,0.28)] bg-[rgba(224,82,82,0.06)]">
+          <p className="text-sm text-[#f2c2c2] font-medium">Tarama basarisiz</p>
+          <p className="text-xs text-[#e79a9a] mt-1 break-all">{scanError}</p>
+          <p className="text-xs text-[#d9b2b2] mt-3">
+            Beklenen INBOX yolu: <span className="font-mono">{inboxPath}</span>
+          </p>
+        </Card>
+      )}
+
       {/* Not yet scanned */}
-      {hdd.connected && !isScanning && !scanResult && (
+      {hdd.connected && !isScanning && !scanResult && !scanError && (
         <Card className="text-center py-12 text-[#565e80]">
           INBOX taranmadı. Yukarıdan Tara butonuna tıklayın.
         </Card>

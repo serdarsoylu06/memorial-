@@ -26,7 +26,7 @@ const dotMap: Record<Tone, string> = {
 };
 
 export function confidenceTone(confidence: string): Tone {
-  switch (confidence) {
+  switch (confidence.toLowerCase()) {
     case "high":   return "success";
     case "medium": return "warning";
     case "low":    return "danger";

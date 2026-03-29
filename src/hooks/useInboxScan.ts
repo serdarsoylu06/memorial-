@@ -6,25 +6,33 @@ import type { ScanResult } from "../types";
 
 export function useInboxScan() {
   const { settings } = useAppStore();
-  const { setScanning, setScanResult, isScanning } = useInboxStore();
+  const { setScanning, setScanResult, setScanError, isScanning } = useInboxStore();
 
   const scan = useCallback(async () => {
     if (!settings.hdd_root || isScanning) return;
-    const inboxPath = `${settings.hdd_root}/${settings.inbox_dir}`;
+    const inboxPath = `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
     setScanning(true);
+    setScanError(null);
     try {
+      const inboxExists = await invoke<boolean>("check_path_exists", { path: inboxPath });
+      if (!inboxExists) {
+        throw new Error(`INBOX klasoru bulunamadi: ${inboxPath}`);
+      }
+
       const result = await invoke<ScanResult>("scan_inbox", {
         inboxPath,
         sessionGapHours: settings.operations.session_gap_hours,
       });
       setScanResult(result);
     } catch (err) {
-      console.error("Scan failed:", err);
-      setScanResult({ total_files: 0, sessions: [], unclassified: [] });
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("Scan failed:", message);
+      setScanError(message);
+      setScanResult(null);
     } finally {
       setScanning(false);
     }
-  }, [settings, isScanning, setScanning, setScanResult]);
+  }, [settings, isScanning, setScanning, setScanError, setScanResult]);
 
   return { scan };
 }

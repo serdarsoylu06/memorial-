@@ -3,11 +3,13 @@ import type { ScanResult, Session } from "../types";
 
 interface InboxStore {
   scanResult: ScanResult | null;
+  scanError: string | null;
   selectedSession: Session | null;
   isScanning: boolean;
   approvedSessions: Set<string>;
   rejectedSessions: Set<string>;
   setScanResult: (result: ScanResult | null) => void;
+  setScanError: (message: string | null) => void;
   setSelectedSession: (session: Session | null) => void;
   setScanning: (v: boolean) => void;
   approveSession: (id: string) => void;
@@ -17,11 +19,13 @@ interface InboxStore {
 
 export const useInboxStore = create<InboxStore>((set) => ({
   scanResult: null,
+  scanError: null,
   selectedSession: null,
   isScanning: false,
   approvedSessions: new Set(),
   rejectedSessions: new Set(),
   setScanResult: (scanResult) => set({ scanResult }),
+  setScanError: (scanError) => set({ scanError }),
   setSelectedSession: (selectedSession) => set({ selectedSession }),
   setScanning: (isScanning) => set({ isScanning }),
   approveSession: (id) =>

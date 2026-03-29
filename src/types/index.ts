@@ -8,7 +8,7 @@ export type DeviceType =
   | "Samsung_Note8"
   | "Unknown";
 
-export type Confidence = "high" | "medium" | "low" | "none";
+export type Confidence = "high" | "medium" | "low" | "none" | "High" | "Medium" | "Low" | "None";
 
 export type FileKind = "photo" | "video" | "unknown";
 
