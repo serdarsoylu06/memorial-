@@ -77,6 +77,7 @@ function SessionCard({ session }: { session: Session }) {
   const { settings } = useAppStore();
   const navigate = useNavigate();
   const [customPath, setCustomPath] = useState(session.suggested_path);
+  const [createdFolders, setCreatedFolders] = useState<string[]>([]);
   const isApproved = approvedSessions.has(session.id);
   const isRejected = rejectedSessions.has(session.id);
 
@@ -103,6 +104,14 @@ function SessionCard({ session }: { session: Session }) {
 
       const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
       if (result.success) {
+        const folders = Array.from(
+          new Set(
+            result.moved
+              .map((p) => p.replace(/[\\/][^\\/]+$/, ""))
+              .filter(Boolean)
+          )
+        );
+        setCreatedFolders(folders);
         approveSession(session.id);
       } else {
         console.error("Copy failed:", result.failed);
@@ -192,8 +201,20 @@ function SessionCard({ session }: { session: Session }) {
         </div>
       )}
       {isApproved && (
-        <div className="px-4 pb-3 flex items-center gap-1.5 text-xs text-[#3dd68c]">
-          <CheckCheck size={13} /> Onaylandı
+        <div className="px-4 pb-3 space-y-1.5">
+          <div className="flex items-center gap-1.5 text-xs text-[#3dd68c]">
+            <CheckCheck size={13} /> Onaylandı
+          </div>
+          {createdFolders.length > 0 && (
+            <div className="rounded-md border border-[rgba(61,214,140,0.22)] bg-[rgba(61,214,140,0.08)] px-2 py-2">
+              <p className="text-[11px] text-[#9dddbf] mb-1">Olusturulan klasorler:</p>
+              {createdFolders.slice(0, 3).map((folder, idx) => (
+                <p key={`${folder}-${idx}`} className="text-[11px] text-[#7fd0ab] font-mono truncate" title={folder}>
+                  {idx + 1}. {folder}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {isRejected && (

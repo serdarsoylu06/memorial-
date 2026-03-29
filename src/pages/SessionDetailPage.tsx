@@ -293,6 +293,20 @@ export default function SessionDetailPage() {
                 </span>
               </div>
               <p className="text-xs text-[#565e80]">{result.moved.length} işlendi, {result.failed.length} hata</p>
+              {result.success && result.moved.length > 0 && (
+                <div className="mt-2 rounded-md border border-[rgba(61,214,140,0.22)] bg-[rgba(61,214,140,0.08)] px-2 py-2">
+                  <p className="text-[11px] text-[#9dddbf] mb-1">Olusturulan klasorler:</p>
+                  {Array.from(
+                    new Set(result.moved.map((p) => p.replace(/[\\/][^\\/]+$/, "")).filter(Boolean))
+                  )
+                    .slice(0, 5)
+                    .map((folder, idx) => (
+                      <p key={`${folder}-${idx}`} className="text-[11px] text-[#7fd0ab] font-mono break-all">
+                        {idx + 1}. {folder}
+                      </p>
+                    ))}
+                </div>
+              )}
             </Card>
           )}
         </div>
