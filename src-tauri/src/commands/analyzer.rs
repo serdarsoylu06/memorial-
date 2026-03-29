@@ -208,18 +208,71 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
         .map(|ndt| Utc.from_utc_datetime(&ndt))
 }
 
-// ─── GPS / Location Helpers ─────────────────────────────────────────────────────
+// ─── YAML Location Rules ────────────────────────────────────────────────────────
 
-const GIRESUN_LAT_MIN: f64 = 40.85;
-const GIRESUN_LAT_MAX: f64 = 41.15;
-const GIRESUN_LON_MIN: f64 = 38.25;
-const GIRESUN_LON_MAX: f64 = 38.55;
+#[derive(Debug, Clone, Deserialize)]
+pub struct GpsBbox {
+    pub lat: [f64; 2],
+    pub lon: [f64; 2],
+}
 
-fn is_in_giresun(lat: f64, lon: f64) -> bool {
-    lat >= GIRESUN_LAT_MIN
-        && lat <= GIRESUN_LAT_MAX
-        && lon >= GIRESUN_LON_MIN
-        && lon <= GIRESUN_LON_MAX
+#[derive(Debug, Clone, Deserialize)]
+pub struct LocationRule {
+    pub gps_bbox: GpsBbox,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub adaptive_split: HashMap<String, u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LocationsConfig {
+    pub everyday_locations: HashMap<String, LocationRule>,
+    #[serde(default)]
+    pub correlation: HashMap<String, serde_yaml::Value>,
+}
+
+fn match_gps_location(
+    locations: &HashMap<String, LocationRule>,
+    lat: f64,
+    lon: f64,
+) -> Option<String> {
+    for (name, rule) in locations {
+        let bb = &rule.gps_bbox;
+        if lat >= bb.lat[0] && lat <= bb.lat[1] && lon >= bb.lon[0] && lon <= bb.lon[1] {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
+// ─── Camera Noise Folder Detection ──────────────────────────────────────────────
+
+/// Returns true if a folder name is camera/system-generated noise that
+/// should NOT be treated as an event name.
+fn is_noise_folder(name: &str) -> bool {
+    let n = name.to_uppercase();
+    // Well-known camera/system folders
+    let known_noise = [
+        "DCIM", "PRIVATE", "AVCHD", "BDMV", "STREAM", "CLIPINF",
+        "BACKUP", "MISC", "CANONMSC", "SONYCARD", "MP_ROOT",
+        "AVF_INFO", "__MACOSX", ".TRASHES", ".SPOTLIGHT-V100",
+        "INBOX", "STAGING", "REVIEW",
+    ];
+    if known_noise.iter().any(|k| n == *k) {
+        return true;
+    }
+    // Camera roll folders: 3+ digits followed by letters (100CANON, 101MSDCF, 100ANDRO, etc.)
+    if n.len() >= 4 {
+        let digits: usize = n.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits >= 3 && digits < n.len() {
+            return true;
+        }
+    }
+    // Purely numeric folders
+    if name.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    false
 }
 
 /// Parse a single media file from disk, extracting metadata and EXIF.
@@ -336,27 +389,59 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
 
 // ─── Session Grouping ───────────────────────────────────────────────────────────
 
-fn group_into_sessions(files: Vec<MediaFile>, session_gap_hours: i64) -> Vec<Session> {
+/// Walk up from the file's parent directory to find a meaningful (non-noise)
+/// event folder name. Returns None if only noise/INBOX folders are found.
+fn find_meaningful_folder(file_path: &str, inbox_root: &Path) -> Option<String> {
+    let mut cur = Path::new(file_path).parent()?;
+    // Walk up until we hit INBOX root or filesystem root
+    while cur.starts_with(inbox_root) && cur != inbox_root {
+        let name = cur.file_name()?.to_str()?;
+        if !is_noise_folder(name) {
+            return Some(name.to_string());
+        }
+        cur = cur.parent()?;
+    }
+    None
+}
+
+/// Extract a date string (YYYY-MM-DD) from a file's created_at timestamp.
+fn file_date_key(file: &MediaFile) -> String {
+    file.created_at
+        .as_deref()
+        .and_then(|s| parse_datetime(s))
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "unknown-date".to_string())
+}
+
+fn group_into_sessions(
+    files: Vec<MediaFile>,
+    session_gap_hours: i64,
+    inbox_root: &Path,
+) -> Vec<Session> {
     if files.is_empty() {
         return vec![];
     }
 
-    // Step 1: Group files by their parent directory so files from different
-    // INBOX sub-folders are never mixed into the same session.
-    let mut dir_groups: HashMap<String, Vec<MediaFile>> = HashMap::new();
+    // Step 1: Build a composite grouping key per file.
+    // - If file lives in a meaningful event folder → key = folder name
+    // - Otherwise → key = calendar date (YYYY-MM-DD)
+    // This ensures files from named folders stay together,
+    // while loose/camera-dump files are split by date.
+    let mut groups: HashMap<String, Vec<MediaFile>> = HashMap::new();
     for file in files {
-        let parent = Path::new(&file.path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-        dir_groups.entry(parent).or_default().push(file);
+        let folder = find_meaningful_folder(&file.path, inbox_root);
+        let key = match folder {
+            Some(ref name) => format!("folder::{}", name),
+            None => format!("date::{}", file_date_key(&file)),
+        };
+        groups.entry(key).or_default().push(file);
     }
 
-    // Step 2: Within each directory group, sort by timestamp and split by gap.
+    // Step 2: Within each group, sort by timestamp and split by time gap.
     let gap = Duration::hours(session_gap_hours);
     let mut all_sessions: Vec<Session> = Vec::new();
 
-    for (_, mut group_files) in dir_groups {
+    for (_, mut group_files) in groups {
         group_files.sort_by(|a, b| {
             a.created_at
                 .as_deref()
@@ -373,8 +458,11 @@ fn group_into_sessions(files: Vec<MediaFile>, session_gap_hours: i64) -> Vec<Ses
             });
             let curr_ts = file.created_at.as_deref().and_then(|s| parse_datetime(s));
 
+            // Split by time gap OR by different calendar day
             let should_split = match (last_ts, curr_ts) {
-                (Some(lt), Some(ct)) => ct - lt > gap,
+                (Some(lt), Some(ct)) => {
+                    ct - lt > gap || lt.date_naive() != ct.date_naive()
+                }
                 _ => false,
             };
 
@@ -386,7 +474,7 @@ fn group_into_sessions(files: Vec<MediaFile>, session_gap_hours: i64) -> Vec<Ses
         }
 
         for chunk in chunks {
-            all_sessions.push(build_session(chunk));
+            all_sessions.push(build_session(chunk, inbox_root));
         }
     }
 
@@ -401,7 +489,7 @@ fn group_into_sessions(files: Vec<MediaFile>, session_gap_hours: i64) -> Vec<Ses
     all_sessions
 }
 
-fn build_session(files: Vec<MediaFile>) -> Session {
+fn build_session(files: Vec<MediaFile>, inbox_root: &Path) -> Session {
     let id = Uuid::new_v4().to_string();
 
     let date_start = files
@@ -434,9 +522,12 @@ fn build_session(files: Vec<MediaFile>) -> Session {
     let has_gps = files.iter().any(|f| f.has_gps)
         || representative_gps.is_some();
 
+    // Load locations for GPS matching
+    let locations = load_locations();
+
     // Determine confidence + suggested path
     let (confidence, suggested_path) =
-        calculate_confidence_and_path(&files, representative_gps, date_start.as_deref());
+        calculate_confidence_and_path(&files, representative_gps, date_start.as_deref(), inbox_root, &locations);
 
     Session {
         id,
@@ -450,12 +541,21 @@ fn build_session(files: Vec<MediaFile>) -> Session {
     }
 }
 
+fn load_locations() -> HashMap<String, LocationRule> {
+    let yaml_str = include_str!("../../../rules/locations.yaml");
+    serde_yaml::from_str::<LocationsConfig>(yaml_str)
+        .map(|c| c.everyday_locations)
+        .unwrap_or_default()
+}
+
 // ─── Confidence + Path Logic ────────────────────────────────────────────────────
 
 fn calculate_confidence_and_path(
     files: &[MediaFile],
     _borrowed_gps: Option<(Option<f64>, Option<f64>)>,
     date_start: Option<&str>,
+    inbox_root: &Path,
+    locations: &HashMap<String, LocationRule>,
 ) -> (Confidence, String) {
     // Check own GPS on any file
     let own_gps = files.iter().find(|f| f.has_gps);
@@ -464,103 +564,99 @@ fn calculate_confidence_and_path(
         .iter()
         .find(|f| f.has_gps && device_carries_gps(&f.device));
 
-    // Derive event name from parent folder (if files all in a named folder)
-    let folder_event = extract_folder_event(files);
+    // Derive event name from folder structure (smart extraction)
+    let folder_event = files
+        .first()
+        .and_then(|f| find_meaningful_folder(&f.path, inbox_root));
 
-    let (confidence, location) = if own_gps.is_some() && folder_event.is_some() {
-        // Layer 1 + Layer 2: Highest confidence
-        (Confidence::High, gps_location(own_gps.unwrap()))
-    } else if own_gps.is_some() {
-        // Layer 1 only
-        (Confidence::High, gps_location(own_gps.unwrap()))
-    } else if phone_gps.is_some() && folder_event.is_some() {
-        // Layer 3 + Layer 2
-        (Confidence::Medium, gps_location(phone_gps.unwrap()))
-    } else if phone_gps.is_some() {
-        // Layer 3/4: Phone GPS borrow
-        (Confidence::Medium, gps_location(phone_gps.unwrap()))
+    // Resolve GPS location name from YAML
+    let gps_file = own_gps.or(phone_gps);
+    let location_name = gps_file.and_then(|f| {
+        match (f.gps_lat, f.gps_lon) {
+            (Some(lat), Some(lon)) => match_gps_location(locations, lat, lon),
+            _ => None,
+        }
+    });
+
+    let confidence = if gps_file.is_some() && folder_event.is_some() {
+        Confidence::High
+    } else if gps_file.is_some() {
+        if own_gps.is_some() { Confidence::High } else { Confidence::Medium }
     } else if folder_event.is_some() {
-        // Layer 2 only
-        (Confidence::Low, LocationKind::Unknown)
+        Confidence::Low
     } else {
-        (Confidence::None, LocationKind::Unknown)
+        Confidence::None
     };
 
-    // Build path string
-    let path = build_suggested_path(date_start, &location, folder_event.as_deref(), files.len());
+    let path = build_suggested_path(
+        date_start,
+        location_name.as_deref(),
+        folder_event.as_deref(),
+    );
 
     (confidence, path)
 }
 
-#[derive(Debug, Clone)]
-enum LocationKind {
-    Giresun,
-    Unknown,
-}
-
-fn gps_location(file: &MediaFile) -> LocationKind {
-    if let (Some(lat), Some(lon)) = (file.gps_lat, file.gps_lon) {
-        if is_in_giresun(lat, lon) {
-            return LocationKind::Giresun;
+/// Strip leading date patterns from an event name to prevent duplication.
+/// "2026-03-15_Wedding" → "Wedding"
+/// "2026-03-Wedding" → "Wedding"
+/// "Wedding" → "Wedding"
+fn strip_date_prefix(name: &str) -> &str {
+    // Pattern: YYYY-MM-DD_ or YYYY-MM-DD- or YYYY-MM_ or YYYY-MM-
+    let bytes = name.as_bytes();
+    // Try YYYY-MM-DD_ (11 chars)
+    if bytes.len() > 11 && bytes[4] == b'-' && bytes[7] == b'-' {
+        if let Some(rest) = name.get(10..) {
+            let rest = rest.trim_start_matches(|c: char| c == '_' || c == '-');
+            if !rest.is_empty() {
+                return rest;
+            }
         }
     }
-    LocationKind::Unknown
-}
-
-fn extract_folder_event(files: &[MediaFile]) -> Option<String> {
-    // Check if all files share a parent folder that looks like an event
-    let parent = files.first()?.path.as_str();
-    let parent_dir = Path::new(parent).parent()?;
-    let folder_name = parent_dir.file_name()?.to_str()?;
-
-    // Event pattern: YYYY-MM-DD_EventName or just a named folder (not INBOX/STAGING)
-    if folder_name == "INBOX" || folder_name == "STAGING" {
-        return None;
+    // Try YYYY-MM_ (8 chars)
+    if bytes.len() > 8 && bytes[4] == b'-' {
+        if let Some(rest) = name.get(7..) {
+            let rest = rest.trim_start_matches(|c: char| c == '_' || c == '-');
+            if !rest.is_empty() {
+                return rest;
+            }
+        }
     }
-    // Check that all files share the same parent
-    let all_same_parent = files.iter().all(|f| {
-        Path::new(&f.path)
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            == Some(folder_name)
-    });
-
-    if all_same_parent && folder_name.len() > 4 {
-        Some(folder_name.to_string())
-    } else {
-        None
-    }
+    name
 }
 
 fn build_suggested_path(
     date_start: Option<&str>,
-    location: &LocationKind,
+    location_name: Option<&str>,
     event_name: Option<&str>,
-    _file_count: usize,
 ) -> String {
-    // Parse date
     let date = date_start
         .and_then(|s| parse_datetime(s))
         .unwrap_or_else(Utc::now);
 
     let yyyy = date.format("%Y").to_string();
-    let yyyy_mm = date.format("%Y-%m").to_string();
+    let yyyy_mm_dd = date.format("%Y-%m-%d").to_string();
 
-    match location {
-        LocationKind::Giresun => {
-            if let Some(event) = event_name {
-                format!("ARCHIVE/{}/{}-{}", yyyy, yyyy_mm, event)
-            } else {
-                format!("ARCHIVE/{}/{}-Giresun", yyyy, yyyy_mm)
-            }
+    // Clean event name: strip any leading date to prevent "2026-03-15-2026-03-15_Wedding"
+    let clean_event = event_name.map(|e| strip_date_prefix(e));
+
+    // Priority: event name > GPS location > bare date
+    match (clean_event, location_name) {
+        (Some(event), Some(loc)) => {
+            // Both event folder + GPS location
+            format!("ARCHIVE/{}/{}_{}-{}", yyyy, yyyy_mm_dd, loc, event)
         }
-        LocationKind::Unknown => {
-            if let Some(event) = event_name {
-                format!("ARCHIVE/{}/{}-{}", yyyy, yyyy_mm, event)
-            } else {
-                format!("ARCHIVE/{}/{}-Bilinmeyen", yyyy, yyyy_mm)
-            }
+        (Some(event), None) => {
+            // Event folder, no GPS
+            format!("ARCHIVE/{}/{}_{}", yyyy, yyyy_mm_dd, event)
+        }
+        (None, Some(loc)) => {
+            // GPS location only, no event folder
+            format!("ARCHIVE/{}/{}_{}", yyyy, yyyy_mm_dd, loc)
+        }
+        (None, None) => {
+            // Nothing — just date
+            format!("ARCHIVE/{}/{}", yyyy, yyyy_mm_dd)
         }
     }
 }
@@ -657,10 +753,16 @@ pub async fn scan_inbox(
     let total_files = media_files.len();
 
     // Group into sessions
-    let mut sessions = group_into_sessions(media_files, gap_hours);
+    let mut sessions = group_into_sessions(media_files, gap_hours, root);
 
     // Apply GPS borrow across sessions
     apply_gps_borrow(&mut sessions);
+
+    // Load location rules for GPS matching
+    let loc_yaml = include_str!("../../../rules/locations.yaml");
+    let locations: HashMap<String, LocationRule> = serde_yaml::from_str::<LocationsConfig>(loc_yaml)
+        .map(|c| c.everyday_locations)
+        .unwrap_or_default();
 
     // Rebuild session confidence/path after GPS borrow
     for session in sessions.iter_mut() {
@@ -673,12 +775,21 @@ pub async fn scan_inbox(
             &session.files,
             borrowed_gps,
             session.date_start.as_deref(),
+            root,
+            &locations,
         );
         session.confidence = conf;
         session.suggested_path = path;
     }
 
-    // Separate sessions with no confidence → unclassified
+    // Separate sessions with no confidence AND no date → unclassified.
+    // Sessions with at least a valid date get promoted to Low confidence.
+    for session in sessions.iter_mut() {
+        if session.confidence == Confidence::None && session.date_start.is_some() {
+            session.confidence = Confidence::Low;
+        }
+    }
+
     let (classified, unclassified_sessions): (Vec<_>, Vec<_>) = sessions
         .into_iter()
         .partition(|s| s.confidence != Confidence::None);
