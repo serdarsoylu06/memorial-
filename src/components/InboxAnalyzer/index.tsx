@@ -82,10 +82,9 @@ function SessionCard({ session }: { session: Session }) {
 
   const photoCount = session.files.filter((f) => f.kind === "photo").length;
   const videoCount = session.files.filter((f) => f.kind === "video").length;
-  const sampleFile = session.files[0];
-  const sampleTarget = sampleFile
-    ? `${settings.hdd_root}/${customPath}/${sampleFile.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(sampleFile.device)}/${sampleFile.filename}`
-    : null;
+  const previewTargets = session.files.slice(0, 3).map((f) =>
+    `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`
+  );
 
   const approve = async () => {
     if (!settings.hdd_root) return;
@@ -146,10 +145,15 @@ function SessionCard({ session }: { session: Session }) {
 
         {/* Suggested path */}
         <PathEditor value={customPath} onChange={setCustomPath} />
-        {sampleTarget && (
-          <p className="mt-1 text-[11px] text-[#7a82a3] font-mono truncate" title={sampleTarget}>
-            Ornek hedef: {sampleTarget}
-          </p>
+        {previewTargets.length > 0 && (
+          <div className="mt-2 space-y-1">
+            <p className="text-[11px] text-[#8a91b1]">Ornek hedefler (ilk 3 dosya):</p>
+            {previewTargets.map((target, idx) => (
+              <p key={`${target}-${idx}`} className="text-[11px] text-[#7a82a3] font-mono truncate" title={target}>
+                {idx + 1}. {target}
+              </p>
+            ))}
+          </div>
         )}
       </div>
 

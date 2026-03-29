@@ -88,10 +88,9 @@ export default function SessionDetailPage() {
 
   const photoCount = session.files.filter((f) => f.kind === "photo").length;
   const videoCount = session.files.filter((f) => f.kind === "video").length;
-  const sampleFile = session.files[0];
-  const sampleTarget = sampleFile
-    ? `${settings.hdd_root}/${customPath}/${sampleFile.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(sampleFile.device)}/${sampleFile.filename}`
-    : null;
+  const previewTargets = session.files.slice(0, 3).map((f) =>
+    `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`
+  );
 
   const runOperation = async () => {
     if (!settings.hdd_root) return;
@@ -222,10 +221,15 @@ export default function SessionDetailPage() {
               onChange={(e) => setCustomPath(e.target.value)}
               className="w-full bg-[#0d0f18] border border-[#252840] focus:border-[#6c8cff] rounded px-3 py-1.5 text-xs text-[#e8eaf6] outline-none font-mono"
             />
-            {sampleTarget && (
-              <p className="mt-2 text-[11px] text-[#7a82a3] font-mono break-all">
-                Ornek hedef: {sampleTarget}
-              </p>
+            {previewTargets.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <p className="text-[11px] text-[#8a91b1]">Ornek hedefler (ilk 3 dosya):</p>
+                {previewTargets.map((target, idx) => (
+                  <p key={`${target}-${idx}`} className="text-[11px] text-[#7a82a3] font-mono break-all">
+                    {idx + 1}. {target}
+                  </p>
+                ))}
+              </div>
             )}
           </Card>
 
