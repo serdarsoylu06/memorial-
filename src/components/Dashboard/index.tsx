@@ -25,10 +25,21 @@ function HDDBanner() {
   const hdd = useHDDStatus();
   const { settings } = useAppStore();
   const navigate = useNavigate();
-  const used = hdd.total_bytes && hdd.free_bytes
-    ? hdd.total_bytes - hdd.free_bytes
-    : null;
-  const pct = hdd.total_bytes && used ? (used / hdd.total_bytes) * 100 : null;
+  const [inboxSize, setInboxSize] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!hdd.connected || !settings.hdd_root) {
+      setInboxSize(null);
+      return;
+    }
+    const inboxDir = settings.inbox_dir;
+    const inboxPath = inboxDir.startsWith("/")
+      ? inboxDir
+      : `${settings.hdd_root.replace(/\/$/, "")}/${inboxDir.replace(/^\//, "")}`;
+    invoke<number>("get_folder_size", { path: inboxPath })
+      .then(setInboxSize)
+      .catch(() => setInboxSize(null));
+  }, [hdd.connected, settings.hdd_root, settings.inbox_dir]);
 
   return (
     <Card padded={false} className="p-4 flex items-center gap-4">
@@ -41,22 +52,13 @@ function HDDBanner() {
         </p>
         <p className="text-xs text-[#565e80] mt-0.5 truncate">
           {hdd.connected
-            ? `${formatBytes(used)} kullanıldı / ${formatBytes(hdd.total_bytes)} toplam`
+            ? inboxSize !== null && inboxSize > 0
+              ? `INBOX: ${formatBytes(inboxSize)}`
+              : "INBOX boş"
             : settings.hdd_root
             ? "Sürücü şu an bağlı değil"
             : "Ayarlar'dan HDD yolu seçin"}
         </p>
-        {pct !== null && (
-          <div className="mt-1.5 w-full h-1 bg-[#1a1d2e] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${pct}%`,
-                background: pct > 90 ? "#e05252" : pct > 70 ? "#f0b23a" : "#6c8cff",
-              }}
-            />
-          </div>
-        )}
       </div>
       {!hdd.connected && (
         <Button variant="outline" size="sm" onClick={() => navigate("/settings")}>
@@ -98,7 +100,7 @@ export default function Dashboard() {
   const { settings } = useAppStore();
   const { scanResult } = useInboxStore();
   const hdd = useHDDStatus();
-  const { scan } = useInboxScan();
+  const { scan, isScanning } = useInboxScan();
   const [stats, setStats] = useState<ArchiveStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const navigate = useNavigate();
@@ -128,11 +130,11 @@ export default function Dashboard() {
         <Button
           variant="primary"
           size="sm"
-          icon={<RefreshCw size={14} />}
+          icon={<RefreshCw size={14} className={isScanning ? "animate-spin" : ""} />}
           onClick={() => void scan()}
-          disabled={!hdd.connected}
+          disabled={!hdd.connected || isScanning}
         >
-          INBOX Tara
+          {isScanning ? "Taranıyor…" : "INBOX Tara"}
         </Button>
       </div>
 

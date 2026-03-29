@@ -243,6 +243,47 @@ pub async fn check_path_exists(path: String) -> Result<bool, String> {
     Ok(Path::new(&path).exists())
 }
 
+/// Calculate total size of a directory in bytes.
+#[tauri::command]
+pub async fn get_folder_size(path: String) -> Result<u64, String> {
+    let root = Path::new(&path);
+    if !root.exists() {
+        return Ok(0);
+    }
+    let total: u64 = WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .sum();
+    Ok(total)
+}
+
+/// Create the top-level folder structure on the HDD root.
+/// Creates: INBOX, ARCHIVE, EDITS, REVIEW, STAGING (if they don't already exist).
+#[tauri::command]
+pub async fn init_folder_structure(
+    hdd_root: String,
+    dirs: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let root = Path::new(&hdd_root);
+    if !root.exists() {
+        return Err(format!("HDD root does not exist: {hdd_root}"));
+    }
+    let mut created: Vec<String> = Vec::new();
+    for dir_name in &dirs {
+        let dir_path = root.join(dir_name);
+        if !dir_path.exists() {
+            std::fs::create_dir_all(&dir_path)
+                .map_err(|e| format!("Failed to create {}: {e}", dir_path.display()))?;
+            created.push(dir_path.to_string_lossy().to_string());
+        }
+    }
+    Ok(created)
+}
+
 /// Get disk usage statistics for a path.
 #[tauri::command]
 pub async fn get_disk_usage(path: String) -> Result<DiskUsage, String> {

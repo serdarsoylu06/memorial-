@@ -36,10 +36,11 @@ pub async fn classify_file(file: MediaFile) -> Result<ClassifyResult, String> {
     };
 
     let device_folder = file.device.folder_name();
+    let media_folder = if file.kind == "video" { "Videos" } else { "Photos" };
     let suggested_folder = if is_everyday {
-        format!("EVERYDAY/{}", device_folder)
+        format!("EVERYDAY/{}/{}", media_folder, device_folder)
     } else {
-        format!("REVIEW/{}", device_folder)
+        format!("REVIEW/{}/{}", media_folder, device_folder)
     };
 
     Ok(ClassifyResult {

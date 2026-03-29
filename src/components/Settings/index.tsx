@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { HardDrive, Sliders, MapPin, Copy, Save, FileText } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { HardDrive, Sliders, MapPin, Copy, Save, FileText, FolderPlus } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import Card from "../ui/Card";
 import Button from "../ui/Button";
@@ -29,6 +30,7 @@ function LabeledRow({ label, children }: { label: string; children: React.ReactN
 export default function Settings() {
   const { settings, setSettings } = useAppStore();
   const [saved, setSaved] = useState(false);
+  const [initStatus, setInitStatus] = useState<string | null>(null);
 
   const pickHDDRoot = async () => {
     try {
@@ -83,11 +85,19 @@ export default function Settings() {
             />
           </LabeledRow>
           <LabeledRow label="INBOX Klasörü">
-            <input
-              value={settings.inbox_dir}
-              onChange={(e) => setSettings({ inbox_dir: e.target.value })}
-              className="bg-[#0d0f18] border border-[#252840] rounded px-2 py-1 text-xs text-[#e8eaf6] outline-none w-28 font-mono"
-            />
+            <span className="text-xs text-[#565e80] font-mono truncate max-w-[200px]" title={settings.inbox_dir}>
+              {settings.inbox_dir || "Seçilmedi"}
+            </span>
+            <Button variant="outline" size="sm" onClick={async () => {
+              try {
+                const selected = await open({ directory: true, multiple: false });
+                if (selected && typeof selected === "string") {
+                  setSettings({ inbox_dir: selected });
+                }
+              } catch (err) { console.error(err); }
+            }}>
+              Seç
+            </Button>
           </LabeledRow>
           <LabeledRow label="REVIEW Klasörü">
             <input
@@ -96,6 +106,53 @@ export default function Settings() {
               className="bg-[#0d0f18] border border-[#252840] rounded px-2 py-1 text-xs text-[#e8eaf6] outline-none w-28 font-mono"
             />
           </LabeledRow>
+          <div className="pt-3 border-t border-[#1a1d2e]">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#8890b4]">Klasör Yapısını Oluştur</p>
+                <p className="text-xs text-[#565e80] mt-0.5">
+                  INBOX, ARCHIVE, EDITS, REVIEW, STAGING klasörlerini HDD kökünde oluşturur
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<FolderPlus size={14} />}
+                disabled={!settings.hdd_root}
+                onClick={async () => {
+                  try {
+                    const dirs = [
+                      settings.inbox_dir.startsWith("/") ? "" : settings.inbox_dir,
+                      settings.archive_dir,
+                      settings.edits_dir,
+                      settings.review_dir,
+                      settings.staging_dir,
+                    ].filter(Boolean);
+                    const created = await invoke<string[]>("init_folder_structure", {
+                      hddRoot: settings.hdd_root,
+                      dirs,
+                    });
+                    setInitStatus(
+                      created.length > 0
+                        ? `${created.length} klasör oluşturuldu ✓`
+                        : "Tüm klasörler zaten mevcut ✓"
+                    );
+                    setTimeout(() => setInitStatus(null), 3000);
+                  } catch (err) {
+                    setInitStatus(`Hata: ${err}`);
+                    setTimeout(() => setInitStatus(null), 4000);
+                  }
+                }}
+              >
+                Oluştur
+              </Button>
+            </div>
+            {initStatus && (
+              <p className={`text-xs mt-2 ${initStatus.startsWith("Hata") ? "text-red-400" : "text-[#3dd68c]"}`}>
+                {initStatus}
+              </p>
+            )}
+          </div>
         </Card>
       </Section>
 

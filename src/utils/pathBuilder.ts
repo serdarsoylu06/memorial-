@@ -44,6 +44,38 @@ export function weekOfMonth(date: Date): number {
 }
 
 /**
+ * Build the EDITS path for edited exports.
+ *
+ * Structure: EDITS/YYYY/YYYY-MM-DD_EventName/{Photos|Videos}/
+ */
+export function buildEditsPath(opts: {
+  hddRoot: string;
+  year: string;
+  month: string;
+  day: string;
+  eventName: string;
+  isVideo: boolean;
+}): string {
+  const { hddRoot, year, month, day, eventName, isVideo } = opts;
+  const mediaFolder = isVideo ? "Videos" : "Photos";
+  return `${hddRoot}/EDITS/${year}/${year}-${month}-${day}_${eventName}/${mediaFolder}/`;
+}
+
+/**
+ * Build the _source.json path inside an EDITS event folder.
+ */
+export function buildSourceJsonPath(opts: {
+  hddRoot: string;
+  year: string;
+  month: string;
+  day: string;
+  eventName: string;
+}): string {
+  const { hddRoot, year, month, day, eventName } = opts;
+  return `${hddRoot}/EDITS/${year}/${year}-${month}-${day}_${eventName}/_source.json`;
+}
+
+/**
  * Parse a folder name like "2024-06-14_Kumbet-Yaylasi" into its components.
  */
 export function parseFolderName(name: string): {

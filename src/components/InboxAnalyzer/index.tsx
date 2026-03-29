@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { ScanLine, CheckCheck, XCircle, Send, FolderEdit, Layers } from "lucide-react";
@@ -11,6 +11,7 @@ import Button from "../ui/Button";
 import Badge, { confidenceTone } from "../ui/Badge";
 import Spinner from "../ui/Spinner";
 import ProgressBar from "../ui/ProgressBar";
+import OperationProgress from "../ui/OperationProgress";
 import type { FileOpResult, MediaFolderHint, Session } from "../../types";
 import { deviceColor, deviceFolderSegment, deviceLabel } from "../../utils/device";
 
@@ -72,7 +73,7 @@ function PathEditor({
   );
 }
 
-function SessionCard({ session }: { session: Session }) {
+function SessionCard({ session, onOperationStart, onOperationEnd }: { session: Session; onOperationStart: () => void; onOperationEnd: () => void }) {
   const { approveSession, rejectSession, approvedSessions, rejectedSessions } = useInboxStore();
   const { settings } = useAppStore();
   const navigate = useNavigate();
@@ -89,6 +90,19 @@ function SessionCard({ session }: { session: Session }) {
 
   const approve = async () => {
     if (!settings.hdd_root) return;
+
+    // Safeguard: destination must NOT be inside INBOX
+    const inboxDir = settings.inbox_dir;
+    const inboxPath = inboxDir.startsWith("/")
+      ? inboxDir
+      : `${settings.hdd_root.replace(/\/$/, "")}/${inboxDir.replace(/^\//, "")}`;
+    const destBase = `${settings.hdd_root.replace(/\/$/, "")}/${customPath}`;
+    if (destBase.startsWith(inboxPath)) {
+      console.error("Hedef yol INBOX içinde olamaz:", destBase);
+      return;
+    }
+
+    onOperationStart();
     const pairs = session.files.map((f) => [
       f.path,
       `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
@@ -98,6 +112,7 @@ function SessionCard({ session }: { session: Session }) {
         const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
         if (!preview.success) {
           console.error("Dry run failed:", preview.failed);
+          onOperationEnd();
           return;
         }
       }
@@ -119,6 +134,7 @@ function SessionCard({ session }: { session: Session }) {
     } catch (err) {
       console.error("Copy failed:", err);
     }
+    onOperationEnd();
   };
 
   return (
@@ -228,12 +244,15 @@ function SessionCard({ session }: { session: Session }) {
 
 export default function InboxAnalyzer() {
   const hdd = useHDDStatus();
-  const { scan } = useInboxScan();
-  const { scanResult, scanError, isScanning, approvedSessions, approveSession } = useInboxStore();
+  const { scan, isScanning } = useInboxScan();
+  const { scanResult, scanError, approvedSessions, approveSession } = useInboxStore();
   const { settings, setSettings } = useAppStore();
   const [progress, setProgress] = useState(0);
   const [folderHints, setFolderHints] = useState<MediaFolderHint[]>([]);
-  const inboxPath = `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
+  const [isOperating, setIsOperating] = useState(false);
+  const inboxPath = settings.inbox_dir.startsWith("/")
+    ? settings.inbox_dir
+    : `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
 
   // Auto-scan on mount if HDD connected
   useEffect(() => {
@@ -262,9 +281,13 @@ export default function InboxAnalyzer() {
       }
 
       try {
+        // ignoreDirs expects folder names (not full paths); extract last segment if absolute
+        const inboxName = settings.inbox_dir.includes("/")
+          ? settings.inbox_dir.replace(/\/$/, "").split("/").pop() ?? settings.inbox_dir
+          : settings.inbox_dir;
         const hints = await invoke<MediaFolderHint[]>("get_media_folder_hints", {
           rootPath: settings.hdd_root,
-          ignoreDirs: [settings.inbox_dir, settings.archive_dir, settings.review_dir, settings.edits_dir, settings.staging_dir],
+          ignoreDirs: [inboxName, settings.archive_dir, settings.review_dir, settings.edits_dir, settings.staging_dir],
         });
         setFolderHints(hints);
       } catch {
@@ -277,7 +300,11 @@ export default function InboxAnalyzer() {
 
   const highConfidence = scanResult?.sessions.filter((s) => s.confidence.toLowerCase() === "high") ?? [];
 
+  const handleOperationStart = useCallback(() => setIsOperating(true), []);
+  const handleOperationEnd = useCallback(() => setIsOperating(false), []);
+
   const bulkApprove = async () => {
+    setIsOperating(true);
     for (const session of highConfidence) {
       if (!approvedSessions.has(session.id)) {
         const pairs = session.files.map((f) => [
@@ -302,6 +329,7 @@ export default function InboxAnalyzer() {
         } catch { /* continue */ }
       }
     }
+    setIsOperating(false);
   };
 
   return (
@@ -413,8 +441,8 @@ export default function InboxAnalyzer() {
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      setSettings({ inbox_dir: hint.name });
-                      void scan();
+                      setSettings({ inbox_dir: hint.path });
+                      void scan(hint.path);
                     }}
                   >
                     INBOX Yap
@@ -428,9 +456,11 @@ export default function InboxAnalyzer() {
 
       <div className="grid gap-4">
         {scanResult?.sessions.map((session) => (
-          <SessionCard key={session.id} session={session} />
+          <SessionCard key={session.id} session={session} onOperationStart={handleOperationStart} onOperationEnd={handleOperationEnd} />
         ))}
       </div>
+
+      <OperationProgress active={isOperating} onComplete={handleOperationEnd} />
     </div>
   );
 }
