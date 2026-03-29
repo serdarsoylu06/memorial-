@@ -95,14 +95,26 @@ export default function SessionDetailPage() {
   const runOperation = async () => {
     if (!settings.hdd_root) return;
     setRunning(true);
+    const command = useMove ? "move_files" : "copy_files";
     const pairs = session.files.map((f) => [
       f.path,
       `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
     ] as [string, string]);
     try {
-      const res = await invoke<FileOpResult>(useMove ? "move_files" : "copy_files", {
+      if (settings.operations.dry_run_first) {
+        const preview = await invoke<FileOpResult>(command, {
+          files: pairs,
+          dryRun: true,
+        });
+        if (!preview.success) {
+          setResult(preview);
+          return;
+        }
+      }
+
+      const res = await invoke<FileOpResult>(command, {
         files: pairs,
-        dryRun: settings.operations.dry_run_first,
+        dryRun: false,
       });
       setResult(res);
     } catch (err) {
@@ -268,7 +280,7 @@ export default function SessionDetailPage() {
             disabled={running || !settings.hdd_root}
             onClick={() => void runOperation()}
           >
-            {settings.operations.dry_run_first ? "Simüle Et" : useMove ? "Taşı" : "Kopyala"}
+            {settings.operations.dry_run_first ? (useMove ? "Onizleme + Tasi" : "Onizleme + Kopyala") : useMove ? "Taşı" : "Kopyala"}
           </Button>
 
           {/* Result */}

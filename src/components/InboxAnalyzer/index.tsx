@@ -11,7 +11,7 @@ import Button from "../ui/Button";
 import Badge, { confidenceTone } from "../ui/Badge";
 import Spinner from "../ui/Spinner";
 import ProgressBar from "../ui/ProgressBar";
-import type { MediaFolderHint, Session } from "../../types";
+import type { FileOpResult, MediaFolderHint, Session } from "../../types";
 import { deviceColor, deviceFolderSegment, deviceLabel } from "../../utils/device";
 
 function DeviceChip({ device }: { device: string }) {
@@ -93,8 +93,20 @@ function SessionCard({ session }: { session: Session }) {
       `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
     ] as [string, string]);
     try {
-      await invoke("copy_files", { files: pairs, dryRun: settings.operations.dry_run_first });
-      approveSession(session.id);
+      if (settings.operations.dry_run_first) {
+        const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
+        if (!preview.success) {
+          console.error("Dry run failed:", preview.failed);
+          return;
+        }
+      }
+
+      const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
+      if (result.success) {
+        approveSession(session.id);
+      } else {
+        console.error("Copy failed:", result.failed);
+      }
     } catch (err) {
       console.error("Copy failed:", err);
     }
@@ -252,8 +264,20 @@ export default function InboxAnalyzer() {
           `${settings.hdd_root}/${session.suggested_path}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
         ] as [string, string]);
         try {
-          await invoke("copy_files", { files: pairs, dryRun: settings.operations.dry_run_first });
-          approveSession(session.id);
+          if (settings.operations.dry_run_first) {
+            const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
+            if (!preview.success) {
+              console.error("Dry run failed:", preview.failed);
+              continue;
+            }
+          }
+
+          const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
+          if (result.success) {
+            approveSession(session.id);
+          } else {
+            console.error("Copy failed:", result.failed);
+          }
         } catch { /* continue */ }
       }
     }
