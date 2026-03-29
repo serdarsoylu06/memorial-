@@ -336,47 +336,69 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
 
 // ─── Session Grouping ───────────────────────────────────────────────────────────
 
-fn group_into_sessions(mut files: Vec<MediaFile>, session_gap_hours: i64) -> Vec<Session> {
+fn group_into_sessions(files: Vec<MediaFile>, session_gap_hours: i64) -> Vec<Session> {
     if files.is_empty() {
         return vec![];
     }
 
-    // Sort by timestamp
-    files.sort_by(|a, b| {
-        a.created_at
-            .as_deref()
-            .unwrap_or("")
-            .cmp(b.created_at.as_deref().unwrap_or(""))
-    });
-
-    let gap = Duration::hours(session_gap_hours);
-    let mut sessions: Vec<Vec<MediaFile>> = vec![vec![files.remove(0)]];
-
+    // Step 1: Group files by their parent directory so files from different
+    // INBOX sub-folders are never mixed into the same session.
+    let mut dir_groups: HashMap<String, Vec<MediaFile>> = HashMap::new();
     for file in files {
-        let last_group = sessions.last_mut().unwrap();
-        let last_ts = last_group.last().and_then(|f| {
-            f.created_at
+        let parent = Path::new(&file.path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        dir_groups.entry(parent).or_default().push(file);
+    }
+
+    // Step 2: Within each directory group, sort by timestamp and split by gap.
+    let gap = Duration::hours(session_gap_hours);
+    let mut all_sessions: Vec<Session> = Vec::new();
+
+    for (_, mut group_files) in dir_groups {
+        group_files.sort_by(|a, b| {
+            a.created_at
                 .as_deref()
-                .and_then(|s| parse_datetime(s))
+                .unwrap_or("")
+                .cmp(b.created_at.as_deref().unwrap_or(""))
         });
-        let curr_ts = file.created_at.as_deref().and_then(|s| parse_datetime(s));
 
-        let should_split = match (last_ts, curr_ts) {
-            (Some(lt), Some(ct)) => ct - lt > gap,
-            _ => false,
-        };
+        let mut chunks: Vec<Vec<MediaFile>> = vec![vec![group_files.remove(0)]];
 
-        if should_split {
-            sessions.push(vec![file]);
-        } else {
-            last_group.push(file);
+        for file in group_files {
+            let last_chunk = chunks.last_mut().unwrap();
+            let last_ts = last_chunk.last().and_then(|f| {
+                f.created_at.as_deref().and_then(|s| parse_datetime(s))
+            });
+            let curr_ts = file.created_at.as_deref().and_then(|s| parse_datetime(s));
+
+            let should_split = match (last_ts, curr_ts) {
+                (Some(lt), Some(ct)) => ct - lt > gap,
+                _ => false,
+            };
+
+            if should_split {
+                chunks.push(vec![file]);
+            } else {
+                last_chunk.push(file);
+            }
+        }
+
+        for chunk in chunks {
+            all_sessions.push(build_session(chunk));
         }
     }
 
-    sessions
-        .into_iter()
-        .map(|files| build_session(files))
-        .collect()
+    // Sort sessions by date for consistent display order
+    all_sessions.sort_by(|a, b| {
+        a.date_start
+            .as_deref()
+            .unwrap_or("")
+            .cmp(b.date_start.as_deref().unwrap_or(""))
+    });
+
+    all_sessions
 }
 
 fn build_session(files: Vec<MediaFile>) -> Session {
