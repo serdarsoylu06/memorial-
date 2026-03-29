@@ -155,13 +155,6 @@ fn gps_rational_to_decimal(deg: f64, min: f64, sec: f64, ref_char: char) -> f64 
     decimal
 }
 
-fn parse_exif_rational(value: &exif::Value) -> Option<f64> {
-    match value {
-        exif::Value::Rational(rats) => rats.first().map(|r| r.num as f64 / r.denom as f64),
-        _ => None,
-    }
-}
-
 fn parse_gps_coord(value: &exif::Value) -> Option<(f64, f64, f64)> {
     if let exif::Value::Rational(rats) = value {
         if rats.len() >= 3 {
@@ -454,7 +447,6 @@ fn calculate_confidence_and_path(
 #[derive(Debug, Clone)]
 enum LocationKind {
     Giresun,
-    Named(String),
     Unknown,
 }
 
@@ -506,7 +498,6 @@ fn build_suggested_path(
 
     let yyyy = date.format("%Y").to_string();
     let yyyy_mm = date.format("%Y-%m").to_string();
-    let yyyy_mm_dd = date.format("%Y-%m-%d").to_string();
 
     match location {
         LocationKind::Giresun => {
@@ -516,13 +507,6 @@ fn build_suggested_path(
             } else {
                 // Everyday — ARCHIVE/YYYY/EVERYDAY/YYYY-MM/
                 format!("ARCHIVE/{}/EVERYDAY/{}", yyyy, yyyy_mm)
-            }
-        }
-        LocationKind::Named(loc) => {
-            if let Some(event) = event_name {
-                format!("ARCHIVE/{}/{}_{}", yyyy, yyyy_mm_dd, event)
-            } else {
-                format!("ARCHIVE/{}/{}_{}", yyyy, yyyy_mm_dd, loc)
             }
         }
         LocationKind::Unknown => {
