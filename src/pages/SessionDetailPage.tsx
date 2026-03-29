@@ -9,6 +9,7 @@ import Badge, { confidenceTone } from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import Card from "../components/ui/Card";
 import type { Session, FileOpResult } from "../types";
+import { deviceFolderSegment } from "../utils/device";
 
 const DEVICE_COLORS: Record<string, string> = {
   "Sony α6700": "#6c8cff",
@@ -93,7 +94,7 @@ export default function SessionDetailPage() {
     setRunning(true);
     const pairs = session.files.map((f) => [
       f.path,
-      `${settings.hdd_root}/${customPath}/${f.device}/${f.filename}`,
+      `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
     ] as [string, string]);
     try {
       const res = await invoke<FileOpResult>(useMove ? "move_files" : "copy_files", {

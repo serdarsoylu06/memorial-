@@ -1,6 +1,11 @@
 // ─── Core Media Types ──────────────────────────────────────────────────────────
 
 export type DeviceType =
+  | "SonyA6700"
+  | "Canon6D"
+  | "Canon60D"
+  | "IPhone"
+  | "SamsungNote8"
   | "Sony_a6700"
   | "Canon_6D"
   | "Canon_60D"

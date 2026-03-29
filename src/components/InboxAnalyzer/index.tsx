@@ -12,7 +12,7 @@ import Badge, { confidenceTone } from "../ui/Badge";
 import Spinner from "../ui/Spinner";
 import ProgressBar from "../ui/ProgressBar";
 import type { MediaFolderHint, Session } from "../../types";
-import { deviceColor, deviceLabel } from "../../utils/device";
+import { deviceColor, deviceFolderSegment, deviceLabel } from "../../utils/device";
 
 function DeviceChip({ device }: { device: string }) {
   const color = deviceColor(device);
@@ -87,7 +87,7 @@ function SessionCard({ session }: { session: Session }) {
     if (!settings.hdd_root) return;
     const pairs = session.files.map((f) => [
       f.path,
-      `${settings.hdd_root}/${customPath}/${f.device}/${f.filename}`,
+      `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
     ] as [string, string]);
     try {
       await invoke("copy_files", { files: pairs, dryRun: settings.operations.dry_run_first });
@@ -236,7 +236,7 @@ export default function InboxAnalyzer() {
       if (!approvedSessions.has(session.id)) {
         const pairs = session.files.map((f) => [
           f.path,
-          `${settings.hdd_root}/${session.suggested_path}/${f.device}/${f.filename}`,
+          `${settings.hdd_root}/${session.suggested_path}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
         ] as [string, string]);
         try {
           await invoke("copy_files", { files: pairs, dryRun: settings.operations.dry_run_first });
@@ -287,7 +287,7 @@ export default function InboxAnalyzer() {
             <Layers size={15} className="text-[#3dd68c]" />
             <span className="text-sm text-[#e8eaf6]">
               <span className="font-semibold">{highConfidence.length}</span>
-              <span className="text-[#565e80] ml-1">yüksek güvenlikli oturum otomatik onaylanabilir</span>
+              <span className="text-[#565e80] ml-1">yüksek güven skorlu oturum otomatik onaylanabilir (EXIF/GPS/tarih sinyali güçlü)</span>
             </span>
           </div>
           <Button variant="success" size="sm" onClick={() => void bulkApprove()}>
