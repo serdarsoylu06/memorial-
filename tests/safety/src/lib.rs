@@ -5,3 +5,5 @@
 mod safe_fs;
 #[path = "../../../src-tauri/src/commands/zip_safety.rs"]
 mod zip_safety;
+#[path = "../../../src-tauri/src/commands/media_time.rs"]
+mod media_time;

@@ -1,4 +1,5 @@
-use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, Utc};
+use super::media_time::parse_datetime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -190,13 +191,6 @@ fn parse_gps_coord(value: &exif::Value) -> Option<(f64, f64, f64)> {
     None
 }
 
-fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
-    // EXIF format: "2024:06:14 15:30:00"
-    NaiveDateTime::parse_from_str(s, "%Y:%m:%d %H:%M:%S")
-        .ok()
-        .map(|ndt| Utc.from_utc_datetime(&ndt))
-}
-
 // ─── YAML Location Rules ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -289,7 +283,7 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
             if let Ok(exif_reader) = exif::Reader::new().read_from_container(&mut bufreader) {
                 // DateTimeOriginal
                 if let Some(field) = exif_reader.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                    created_at = Some(field.display_value().to_string());
+                    created_at = parse_datetime(&field.display_value().to_string()).map(|dt| dt.to_rfc3339());
                 }
                 // Make + Model
                 make_str = exif_reader
@@ -333,7 +327,7 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
     if created_at.is_none() {
         if let Ok(modified) = metadata.modified() {
             let dt: DateTime<Utc> = modified.into();
-            created_at = Some(dt.format("%Y:%m:%d %H:%M:%S").to_string());
+            created_at = Some(dt.to_rfc3339());
         }
     }
 
