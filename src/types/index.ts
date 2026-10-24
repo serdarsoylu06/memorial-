@@ -2,7 +2,7 @@
 
 export type DeviceType = string;
 
-export type Confidence = "high" | "medium" | "low" | "none" | "High" | "Medium" | "Low" | "None";
+export type Confidence = "high" | "medium" | "low" | "none";
 
 export type FileKind = "photo" | "video" | "unknown";
 
