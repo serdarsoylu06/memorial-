@@ -70,7 +70,7 @@ export default function ArchiveBrowser() {
 
   useEffect(() => {
     if (hdd.connected) void loadTree();
-  }, [hdd.connected]);
+  }, [hdd.connected, loadTree]);
 
   // Filter tree by search
   function filterTree(node: ArchiveFolder, q: string): ArchiveFolder | null {

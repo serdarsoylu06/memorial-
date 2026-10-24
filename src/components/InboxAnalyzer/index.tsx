@@ -269,7 +269,7 @@ export default function InboxAnalyzer() {
     if (hdd.connected) {
       void scan();
     }
-  }, [hdd.connected]);
+  }, [hdd.connected, scan]);
 
   // Simulate progress animation during scan
   useEffect(() => {

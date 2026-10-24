@@ -5,3 +5,4 @@ src-tauri/target/
 Thumbs.db
 *.log
 config.local.yaml
+tests/safety/target/
