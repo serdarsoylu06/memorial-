@@ -1,4 +1,5 @@
-use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, Utc};
+use super::media_time::parse_datetime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -80,6 +81,7 @@ fn device_carries_gps(device: &str) -> bool {
 // ─── Confidence ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[serde(rename_all = "lowercase")]
 pub enum Confidence {
     High,
     Medium,
@@ -120,18 +122,6 @@ pub struct ScanResult {
     pub total_files: usize,
     pub sessions: Vec<Session>,
     pub unclassified: Vec<MediaFile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Manifest {
-    pub event: String,
-    pub date: String,
-    pub devices: Vec<String>,
-    pub photo_count: u32,
-    pub video_count: u32,
-    pub location_source: String,
-    pub confidence: String,
-    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,13 +189,6 @@ fn parse_gps_coord(value: &exif::Value) -> Option<(f64, f64, f64)> {
         }
     }
     None
-}
-
-fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
-    // EXIF format: "2024:06:14 15:30:00"
-    NaiveDateTime::parse_from_str(s, "%Y:%m:%d %H:%M:%S")
-        .ok()
-        .map(|ndt| Utc.from_utc_datetime(&ndt))
 }
 
 // ─── YAML Location Rules ────────────────────────────────────────────────────────
@@ -300,7 +283,7 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
             if let Ok(exif_reader) = exif::Reader::new().read_from_container(&mut bufreader) {
                 // DateTimeOriginal
                 if let Some(field) = exif_reader.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                    created_at = Some(field.display_value().to_string());
+                    created_at = parse_datetime(&field.display_value().to_string()).map(|dt| dt.to_rfc3339());
                 }
                 // Make + Model
                 make_str = exif_reader
@@ -344,7 +327,7 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
     if created_at.is_none() {
         if let Ok(modified) = metadata.modified() {
             let dt: DateTime<Utc> = modified.into();
-            created_at = Some(dt.format("%Y:%m:%d %H:%M:%S").to_string());
+            created_at = Some(dt.to_rfc3339());
         }
     }
 
@@ -719,10 +702,17 @@ pub async fn scan_inbox(
     inbox_path: String,
     session_gap_hours: Option<i64>,
 ) -> Result<ScanResult, String> {
-    let gap_hours = session_gap_hours.unwrap_or(2);
+    tokio::task::spawn_blocking(move || scan_inbox_sync(&inbox_path, session_gap_hours.unwrap_or(2)))
+        .await.map_err(|e| format!("Scan task failed: {e}"))?
+}
+
+fn scan_inbox_sync(inbox_path: &str, gap_hours: i64) -> Result<ScanResult, String> {
+    if !(1..=24).contains(&gap_hours) {
+        return Err("Session gap must be between 1 and 24 hours".into());
+    }
     let root = Path::new(&inbox_path);
 
-    if !root.exists() {
+    if !root.is_dir() {
         return Err(format!("INBOX path does not exist: {inbox_path}"));
     }
 
@@ -737,9 +727,9 @@ pub async fn scan_inbox(
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
     {
+        let entry = entry.map_err(|e| format!("Cannot scan INBOX: {e}"))?;
+        if !entry.file_type().is_file() { continue; }
         // Skip hidden files and macOS noise
         let fname = entry.file_name().to_str().unwrap_or("");
         if fname.starts_with('.') || fname.starts_with("__MACOSX") {
@@ -852,4 +842,54 @@ pub async fn get_archive_stats(archive_path: String) -> Result<ArchiveStats, Str
         total_size_bytes,
         folder_count: folder_count.saturating_sub(1), // exclude root itself
     })
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    fn media(path: &str, date: &str) -> MediaFile {
+        MediaFile {
+            path: path.into(), filename: "photo.jpg".into(), size_bytes: 5,
+            created_at: Some(date.into()), device: "Sony_a6700".into(),
+            has_gps: false, gps_lat: None, gps_lon: None, kind: "photo".into(),
+            sidecars: vec!["photo.xmp".into()],
+        }
+    }
+
+    #[test]
+    fn confidence_matches_typescript_wire_values() {
+        for (confidence, value) in [(Confidence::High, "high"), (Confidence::Medium, "medium"), (Confidence::Low, "low"), (Confidence::None, "none")] {
+            assert_eq!(serde_json::to_value(&confidence).unwrap(), value);
+            assert_eq!(serde_json::from_value::<Confidence>(serde_json::json!(value)).unwrap(), confidence);
+        }
+    }
+
+    #[test]
+    fn media_contract_preserves_sidecars_and_nullable_metadata() {
+        let file = media("/inbox/photo.jpg", "2026-10-24T09:00:00Z");
+        let json = serde_json::to_value(&file).unwrap();
+        assert_eq!(json["kind"], "photo");
+        assert_eq!(json["device"], "Sony_a6700");
+        assert_eq!(json["sidecars"], serde_json::json!(["photo.xmp"]));
+        assert!(json["gps_lat"].is_null());
+        let restored: MediaFile = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.sidecars, file.sidecars);
+    }
+
+    #[test]
+    fn same_day_sessions_have_unique_ids_and_obey_configured_gap() {
+        let files = vec![media("/inbox/a.jpg", "2026-10-24T09:00:00Z"), media("/inbox/b.jpg", "2026-10-24T12:00:00Z")];
+        let sessions = group_into_sessions(files.clone(), 2, Path::new("/inbox"));
+        assert_eq!(sessions.len(), 2);
+        assert_ne!(sessions[0].id, sessions[1].id);
+        assert_eq!(group_into_sessions(files, 4, Path::new("/inbox")).len(), 1);
+    }
+
+    #[test]
+    fn invalid_scan_requests_are_errors() {
+        assert!(scan_inbox_sync("/missing-memorial-test-inbox", 2).is_err());
+        assert!(scan_inbox_sync(".", 0).is_err());
+        assert!(scan_inbox_sync(".", 25).is_err());
+    }
 }

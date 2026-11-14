@@ -24,7 +24,10 @@ export const useInboxStore = create<InboxStore>((set) => ({
   isScanning: false,
   approvedSessions: new Set(),
   rejectedSessions: new Set(),
-  setScanResult: (scanResult) => set({ scanResult }),
+  setScanResult: (scanResult) => set({
+    scanResult, selectedSession: null,
+    approvedSessions: new Set(), rejectedSessions: new Set(),
+  }),
   setScanError: (scanError) => set({ scanError }),
   setSelectedSession: (selectedSession) => set({ selectedSession }),
   setScanning: (isScanning) => set({ isScanning }),
