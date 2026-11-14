@@ -1,15 +1,27 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Search, Filter, FileX, Cpu, Copy } from "lucide-react";
+import { Check } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { useHDDStatus } from "../../hooks/useHDDStatus";
-import Card from "../ui/Card";
-import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Spinner from "../ui/Spinner";
+import { Notice, PageHeader, Segmented, inputClass } from "../ui/Page";
+import { deviceLabel, formatBytes } from "../../utils/device";
+import { formatDate } from "../../utils/formatters";
 import type { MediaFile } from "../../types";
 
 type FilterKind = "all" | "no_exif" | "unknown_device" | "duplicate";
+
+const KIND_LABELS: Record<string, string> = { photo: "Fotoğraf", video: "Video", unknown: "Bilinmeyen tür" };
+
+/** Dosyanın neden incelemede olduğunu düz cümleyle söyler. */
+function reasons(file: MediaFile): string {
+  const list: string[] = [];
+  if (!file.created_at) list.push("çekim tarihi yok");
+  if (file.device === "Unknown") list.push("cihaz tanınmadı");
+  if (!file.has_gps) list.push("konum yok");
+  return list.join(", ");
+}
 
 export default function ReviewQueue() {
   const { settings } = useAppStore();
@@ -54,97 +66,97 @@ export default function ReviewQueue() {
     setSelected(new Set());
   };
 
-  const filterTabs: { key: FilterKind; label: string; icon: React.ReactNode }[] = [
-    { key: "all", label: "Tümü", icon: <Filter size={12} /> },
-    { key: "no_exif", label: "EXIF Yok", icon: <FileX size={12} /> },
-    { key: "unknown_device", label: "Bilinmeyen", icon: <Cpu size={12} /> },
-    { key: "duplicate", label: "Kopya Şüphesi", icon: <Copy size={12} /> },
-  ];
-
-  function formatBytes(b: number) {
-    if (b < 1e6) return `${(b / 1e3).toFixed(0)} KB`;
-    return `${(b / 1e6).toFixed(1)} MB`;
-  }
-
   return (
-    <div className="space-y-5 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-[#e8eaf6]">İnceleme Kuyruğu</h1>
-          <p className="text-sm text-[#565e80] mt-0.5">{files.length} dosya inceleme bekliyor</p>
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="İnceleme"
+        status={
+          files.length > 0
+            ? `${files.length.toLocaleString("tr-TR")} dosya bir oturuma yerleştirilemedi.`
+            : "Otomatik yerleştirilemeyen dosyalar burada toplanır."
+        }
+      >
         {selected.size > 0 && (
-          <Button variant="danger" size="sm" onClick={() => void deleteSelected()}>
-            {selected.size} Dosyayı Sil
+          <Button variant="danger" onClick={() => void deleteSelected()}>
+            Seçili {selected.size.toLocaleString("tr-TR")} dosyayı sil
           </Button>
         )}
+      </PageHeader>
+
+      <div className="flex gap-3 flex-wrap items-center">
+        <Segmented
+          label="Filtre"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "all", label: "Tümü" },
+            { value: "no_exif", label: "Tarihi olmayanlar" },
+            { value: "unknown_device", label: "Cihazı bilinmeyenler" },
+            { value: "duplicate", label: "Kopya şüphesi" },
+          ]}
+        />
+        <input
+          type="search"
+          aria-label="Dosya adında ara"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Dosya adında ara"
+          className={`${inputClass} flex-1 min-w-[180px]`}
+        />
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        {filterTabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setFilter(t.key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-              filter === t.key
-                ? "bg-[rgba(108,140,255,0.15)] border-[rgba(108,140,255,0.4)] text-[#6c8cff]"
-                : "border-[#252840] text-[#565e80] hover:border-[#363b60] hover:text-[#8890b4]"
-            }`}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
-        <div className="flex-1 flex items-center gap-2 bg-[#13161f] border border-[#252840] rounded-lg px-3 py-1.5 min-w-[180px]">
-          <Search size={12} className="text-[#565e80] shrink-0" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Dosya ara…"
-            className="bg-transparent text-xs text-[#e8eaf6] outline-none w-full placeholder:text-[#565e80]"
-          />
+      {loading && (
+        <div className="flex justify-center py-12">
+          <Spinner size={24} />
         </div>
-      </div>
-
-      {loading && <div className="flex justify-center py-12"><Spinner size={28} /></div>}
-
-      {!loading && filtered.length === 0 && (
-        <Card className="text-center py-12 text-[#565e80]">
-          {files.length === 0 ? "REVIEW klasörü boş 🎉" : "Filtreyle eşleşen dosya yok."}
-        </Card>
       )}
 
-      <div className="space-y-2">
-        {filtered.map((file) => (
-          <div
-            key={file.path}
-            onClick={() => toggleSelect(file.path)}
-            className={`glass p-3 flex items-center gap-3 cursor-pointer hover:border-[#363b60] transition-all ${
-              selected.has(file.path) ? "border-[rgba(108,140,255,0.4)] bg-[rgba(108,140,255,0.04)]" : ""
-            }`}
-          >
-            <div
-              className={`w-4 h-4 rounded border-2 shrink-0 transition-all ${
-                selected.has(file.path)
-                  ? "bg-[#6c8cff] border-[#6c8cff]"
-                  : "border-[#363b60]"
-              }`}
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-[#e8eaf6] font-medium truncate">{file.filename}</p>
-              <p className="text-xs text-[#565e80] mt-0.5">
-                {formatBytes(file.size_bytes)} · {file.kind}
-                {file.created_at ? ` · ${file.created_at.slice(0, 10)}` : ""}
-              </p>
-            </div>
-            <div className="flex gap-1.5 flex-wrap justify-end">
-              {!file.created_at && <Badge tone="warning">EXIF Yok</Badge>}
-              {file.device === "Unknown" && <Badge tone="muted">Bilinmeyen</Badge>}
-              {file.has_gps && <Badge tone="accent">GPS</Badge>}
-            </div>
-          </div>
-        ))}
-      </div>
+      {!hdd.connected && <Notice title="Disk bağlı değil">İnceleme klasörünü görmek için diski takın.</Notice>}
+
+      {hdd.connected && !loading && filtered.length === 0 && (
+        <Notice title={files.length === 0 ? "İncelenecek dosya yok" : "Bu filtreye uyan dosya yok"}>
+          {files.length === 0
+            ? "Taramada sınıflandırılamayan dosyalar olursa burada görünür."
+            : "Filtreyi veya aramayı değiştirin."}
+        </Notice>
+      )}
+
+      {filtered.length > 0 && (
+        <ul className="list-none m-0 p-0 border-t border-edge">
+          {filtered.map((file) => {
+            const isSelected = selected.has(file.path);
+            return (
+              <li key={file.path} className="border-b border-edge">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  onClick={() => toggleSelect(file.path)}
+                  className="text-left flex items-center gap-3.5 py-2.5 -mx-3 px-3 w-[calc(100%+1.5rem)] rounded-sm hover:bg-table/50 transition-colors"
+                >
+                  <span
+                    aria-hidden
+                    className={`w-4 h-4 rounded-[2px] shrink-0 flex items-center justify-center ${
+                      isSelected ? "bg-mark text-on-mark" : "border border-edge-strong"
+                    }`}
+                  >
+                    {isSelected && <Check size={12} strokeWidth={3} />}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-mono text-[13px] truncate">{file.filename}</span>
+                    <span className="block text-xs text-dim mt-0.5">
+                      {KIND_LABELS[file.kind] ?? file.kind}, {formatBytes(file.size_bytes)}
+                      {file.created_at ? `, ${formatDate(file.created_at)}` : ""}
+                      {file.device !== "Unknown" ? `, ${deviceLabel(file.device)}` : ""}
+                    </span>
+                  </span>
+                  <span className="text-xs text-dim text-right shrink-0">{reasons(file)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

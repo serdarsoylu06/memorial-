@@ -1,254 +1,216 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { ScanLine, CheckCheck, XCircle, Send, FolderEdit, Layers } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { useInboxStore } from "../../store/useInboxStore";
 import { useHDDStatus } from "../../hooks/useHDDStatus";
 import { useInboxScan } from "../../hooks/useInboxScan";
-import Card from "../ui/Card";
 import Button from "../ui/Button";
-import Badge, { confidenceTone } from "../ui/Badge";
-import Spinner from "../ui/Spinner";
+import ConfidenceMeter from "../ui/ConfidenceMeter";
+import ContactStrip from "../ui/ContactStrip";
 import ProgressBar from "../ui/ProgressBar";
 import OperationProgress from "../ui/OperationProgress";
-import type { FileOpResult, MediaFolderHint, Session } from "../../types";
-import { deviceColor, deviceLabel } from "../../utils/device";
+import { Notice, PageHeader, PathText, inputClass } from "../ui/Page";
+import type { AppSettings, FileOpResult, MediaFile, MediaFolderHint, Session } from "../../types";
+import { deviceList } from "../../utils/device";
+import { formatDateRange, formatFileCounts } from "../../utils/formatters";
 
-function DeviceChip({ device }: { device: string }) {
-  const color = deviceColor(device);
-  return (
-    <span
-      className="px-2 py-0.5 rounded-full text-xs font-medium border"
-      style={{
-        color,
-        background: `${color}18`,
-        borderColor: `${color}30`,
-      }}
-    >
-      {deviceLabel(device)}
-    </span>
-  );
+const n = (value: number) => value.toLocaleString("tr-TR");
+
+function destinationDir(settings: AppSettings, targetPath: string, file: MediaFile): string {
+  const deviceDir = (file.device || "Unknown_Device").replace(/\s+/g, "_");
+  return `${settings.hdd_root}/${targetPath}/${deviceDir}`;
 }
 
-function PathEditor({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+/** Bir oturumun dosyaları (ve yan dosyaları) için kaynak → hedef çiftleri. */
+function buildCopyPairs(settings: AppSettings, targetPath: string, session: Session): [string, string][] {
+  const pairs: [string, string][] = [];
+  for (const f of session.files) {
+    const destDir = destinationDir(settings, targetPath, f);
+    pairs.push([f.path, `${destDir}/${f.filename}`]);
+    // Yan dosyalar (.aae, .xmp, .thm) asıl dosyayla birlikte gider
+    if (f.sidecars?.length) {
+      for (const sc of f.sidecars) {
+        const scName = sc.split("/").pop() ?? sc.split("\\").pop() ?? sc;
+        pairs.push([sc, `${destDir}/${scName}`]);
+      }
+    }
+  }
+  return pairs;
+}
+
+/** Önce deneme (ayar açıksa), sonra gerçek kopyalama. Hata varsa Error fırlatır. */
+async function copySession(settings: AppSettings, pairs: [string, string][]): Promise<FileOpResult> {
+  if (settings.operations.dry_run_first) {
+    const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
+    if (!preview.success) {
+      throw new Error(`Ön kontrol ${preview.failed.length} dosyada takıldı; hiçbir dosya kopyalanmadı.`);
+    }
+  }
+  const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
+  if (!result.success) {
+    throw new Error(`${result.failed.length} dosya kopyalanamadı.`);
+  }
+  return result;
+}
+
+function PathEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
   if (editing) {
     return (
-      <div className="flex items-center gap-2 mt-2">
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => {
+      <input
+        autoFocus
+        aria-label="Hedef klasör"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          onChange(draft);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
             onChange(draft);
             setEditing(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { onChange(draft); setEditing(false); }
-            if (e.key === "Escape") { setDraft(value); setEditing(false); }
-          }}
-          className="flex-1 bg-[#0d0f18] border border-[#6c8cff] rounded px-2 py-1 text-xs text-[#e8eaf6] outline-none"
-        />
-      </div>
+          }
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        className={`${inputClass} w-full font-mono text-[15px] h-9`}
+      />
     );
   }
   return (
     <button
-      onClick={() => { setDraft(value); setEditing(true); }}
-      className="mt-1 text-xs text-[#565e80] font-mono hover:text-[#6c8cff] transition-colors truncate block max-w-full"
-      title="Tıkla düzenle"
+      type="button"
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+      title="Hedef klasörü düzenle"
+      className="group flex items-center gap-2 max-w-full text-left text-[15px] bg-transparent border-0 p-0"
     >
-      <FolderEdit size={11} className="inline mr-1 opacity-50" />
-      {value || "—"}
+      <PathText path={value} className="truncate" />
+      <Pencil size={13} className="shrink-0 text-faint group-hover:text-paper" aria-hidden />
     </button>
   );
 }
 
-function SessionCard({ session, onOperationStart, onOperationEnd }: { session: Session; onOperationStart: () => void; onOperationEnd: () => void }) {
+function SessionRow({
+  session,
+  onOperationStart,
+  onOperationEnd,
+}: {
+  session: Session;
+  onOperationStart: () => void;
+  onOperationEnd: () => void;
+}) {
   const { approveSession, rejectSession, approvedSessions, rejectedSessions } = useInboxStore();
   const { settings } = useAppStore();
   const navigate = useNavigate();
   const [customPath, setCustomPath] = useState(session.suggested_path);
   const [createdFolders, setCreatedFolders] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const isApproved = approvedSessions.has(session.id);
   const isRejected = rejectedSessions.has(session.id);
 
-  const photoCount = session.files.filter((f) => f.kind === "photo").length;
-  const videoCount = session.files.filter((f) => f.kind === "video").length;
-  const previewTargets = session.files.slice(0, 3).map((f) => {
-    const deviceDir = (f.device || "Unknown_Device").replace(/\s+/g, "_");
-    return `${settings.hdd_root}/${customPath}/${deviceDir}/${f.filename}`;
-  });
+  const firstFile = session.files[0];
+  const firstTarget = firstFile
+    ? `${destinationDir(settings, customPath, firstFile)}/${firstFile.filename}`
+    : null;
 
   const approve = async () => {
     if (!settings.hdd_root) return;
+    setError(null);
 
-    // Safeguard: destination must NOT be inside INBOX
+    // Güvenlik: hedef, gelen klasörünün içinde olamaz
     const inboxDir = settings.inbox_dir;
     const inboxPath = inboxDir.startsWith("/")
       ? inboxDir
       : `${settings.hdd_root.replace(/\/$/, "")}/${inboxDir.replace(/^\//, "")}`;
     const destBase = `${settings.hdd_root.replace(/\/$/, "")}/${customPath}`;
     if (destBase.startsWith(inboxPath)) {
-      console.error("Hedef yol INBOX içinde olamaz:", destBase);
+      setError("Hedef klasör, gelen klasörünün içinde olamaz. Yolu değiştirip yeniden deneyin.");
       return;
     }
 
     onOperationStart();
-    const pairs: [string, string][] = [];
-    for (const f of session.files) {
-      const deviceDir = (f.device || "Unknown_Device").replace(/\s+/g, "_");
-      const destDir = `${settings.hdd_root}/${customPath}/${deviceDir}`;
-      pairs.push([f.path, `${destDir}/${f.filename}`]);
-      // Include sidecar files (.aae, .xmp, .thm)
-      if (f.sidecars?.length) {
-        for (const sc of f.sidecars) {
-          const scName = sc.split("/").pop() ?? sc.split("\\").pop() ?? sc;
-          pairs.push([sc, `${destDir}/${scName}`]);
-        }
-      }
-    }
     try {
-      if (settings.operations.dry_run_first) {
-        const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
-        if (!preview.success) {
-          console.error("Dry run failed:", preview.failed);
-          onOperationEnd();
-          return;
-        }
-      }
-
-      const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
-      if (result.success) {
-        const folders = Array.from(
-          new Set(
-            result.moved
-              .map((p) => p.replace(/[\\/][^\\/]+$/, ""))
-              .filter(Boolean)
-          )
-        );
-        setCreatedFolders(folders);
-        approveSession(session.id);
-      } else {
-        console.error("Copy failed:", result.failed);
-      }
+      const result = await copySession(settings, buildCopyPairs(settings, customPath, session));
+      const folders = Array.from(
+        new Set(result.moved.map((p) => p.replace(/[\\/][^\\/]+$/, "")).filter(Boolean))
+      );
+      setCreatedFolders(folders);
+      approveSession(session.id);
     } catch (err) {
-      console.error("Copy failed:", err);
+      setError(err instanceof Error ? err.message : String(err));
     }
     onOperationEnd();
   };
 
   return (
-    <Card
-      padded={false}
-      hover
-      className={`transition-all ${isApproved ? "border-[rgba(61,214,140,0.35)] bg-[rgba(61,214,140,0.03)]" : isRejected ? "border-[rgba(224,82,82,0.25)] opacity-60" : ""}`}
-    >
-      <div
-        className="p-4 cursor-pointer"
-        onClick={() => navigate(`/session/${session.id}`)}
-      >
-        {/* Top row */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-[#565e80]">
-                {session.date_start?.slice(0, 10) ?? "—"}
-                {session.date_end && session.date_end !== session.date_start
-                  ? ` → ${session.date_end.slice(0, 10)}`
-                  : ""}
-              </span>
-              <Badge tone={confidenceTone(session.confidence)} dot>
-                {session.confidence}
-              </Badge>
-              {session.has_gps && (
-                <Badge tone="accent">GPS</Badge>
-              )}
-            </div>
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {session.devices.map((d) => <DeviceChip key={d} device={d} />)}
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-lg font-semibold text-[#e8eaf6]">{session.files.length}</p>
-            <p className="text-xs text-[#565e80]">dosya</p>
-          </div>
+    <li className={`py-6 border-b border-edge last:border-b-0 ${isRejected ? "opacity-50" : ""}`}>
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          {isApproved || isRejected ? (
+            <PathText path={customPath} className="block truncate text-[15px]" />
+          ) : (
+            <PathEditor value={customPath} onChange={setCustomPath} />
+          )}
+          <p className="text-[13px] text-dim m-0 mt-1">
+            {formatDateRange(session.date_start, session.date_end)}, {formatFileCounts(session.files)}.{" "}
+            {deviceList(session.devices)} ile çekildi{session.has_gps ? "; konum bilgisi var." : "."}
+          </p>
         </div>
-
-        {/* File type row */}
-        <div className="flex gap-3 mt-2 text-xs text-[#565e80]">
-          {photoCount > 0 && <span>📷 {photoCount}</span>}
-          {videoCount > 0 && <span>🎬 {videoCount}</span>}
-        </div>
-
-        {/* Suggested path */}
-        <PathEditor value={customPath} onChange={setCustomPath} />
-        {previewTargets.length > 0 && (
-          <div className="mt-2 space-y-1">
-            <p className="text-[11px] text-[#8a91b1]">Ornek hedefler (ilk 3 dosya):</p>
-            {previewTargets.map((target, idx) => (
-              <p key={`${target}-${idx}`} className="text-[11px] text-[#7a82a3] font-mono truncate" title={target}>
-                {idx + 1}. {target}
-              </p>
-            ))}
-          </div>
-        )}
+        <ConfidenceMeter level={session.confidence} className="mt-0.5" />
       </div>
 
-      {/* Actions */}
+      <ContactStrip files={session.files} marked={isApproved} className="mt-4" />
+
       {!isApproved && !isRejected && (
-        <div
-          className="flex gap-2 px-4 pb-4 pt-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Button variant="success" size="sm" icon={<CheckCheck size={13} />} onClick={approve}>
-            Onayla
-          </Button>
-          <Button variant="outline" size="sm" icon={<Send size={13} />} onClick={() => navigate(`/session/${session.id}`)}>
-            Detay
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            icon={<XCircle size={13} />}
-            onClick={() => rejectSession(session.id)}
-          >
-            Reddet
-          </Button>
-        </div>
-      )}
-      {isApproved && (
-        <div className="px-4 pb-3 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs text-[#3dd68c]">
-            <CheckCheck size={13} /> Onaylandı
+        <>
+          {firstTarget && (
+            <p className="text-xs text-dim m-0 mt-3 truncate" title={firstTarget}>
+              İlk dosyanın gideceği yer: <span className="font-mono">{firstTarget}</span>
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="text-[13px] text-stop m-0 mt-3">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2 mt-4">
+            <Button variant="primary" onClick={() => void approve()}>
+              Onayla ve kopyala
+            </Button>
+            <Button onClick={() => navigate(`/session/${session.id}`)}>Oturumu aç</Button>
+            <Button variant="quiet" onClick={() => rejectSession(session.id)}>
+              Reddet
+            </Button>
           </div>
-          {createdFolders.length > 0 && (
-            <div className="rounded-md border border-[rgba(61,214,140,0.22)] bg-[rgba(61,214,140,0.08)] px-2 py-2">
-              <p className="text-[11px] text-[#9dddbf] mb-1">Olusturulan klasorler:</p>
-              {createdFolders.slice(0, 3).map((folder, idx) => (
-                <p key={`${folder}-${idx}`} className="text-[11px] text-[#7fd0ab] font-mono truncate" title={folder}>
-                  {idx + 1}. {folder}
-                </p>
-              ))}
-            </div>
+        </>
+      )}
+
+      {isApproved && (
+        <div className="mt-3 text-[13px]">
+          <p className="m-0 font-medium">Kopyalandı</p>
+          {createdFolders.slice(0, 3).map((folder) => (
+            <p key={folder} className="font-mono text-xs text-dim truncate m-0 mt-0.5" title={folder}>
+              {folder}
+            </p>
+          ))}
+          {createdFolders.length > 3 && (
+            <p className="text-xs text-dim m-0 mt-0.5">ve {createdFolders.length - 3} klasör daha</p>
           )}
         </div>
       )}
-      {isRejected && (
-        <div className="px-4 pb-3 flex items-center gap-1.5 text-xs text-[#e05252]">
-          <XCircle size={13} /> Reddedildi
-        </div>
-      )}
-    </Card>
+
+      {isRejected && <p className="mt-3 mb-0 text-[13px] text-dim">Reddedildi; dosyalar gelen klasöründe kaldı.</p>}
+    </li>
   );
 }
 
@@ -257,31 +219,32 @@ export default function InboxAnalyzer() {
   const { scan, isScanning } = useInboxScan();
   const { scanResult, scanError, approvedSessions, approveSession } = useInboxStore();
   const { settings, setSettings } = useAppStore();
+  const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
   const [folderHints, setFolderHints] = useState<MediaFolderHint[]>([]);
   const [isOperating, setIsOperating] = useState(false);
+  const [bulkFailures, setBulkFailures] = useState(0);
   const inboxPath = settings.inbox_dir.startsWith("/")
     ? settings.inbox_dir
     : `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
 
-  // Auto-scan on mount if HDD connected
+  // Disk bağlıysa açılışta kendiliğinden tara
   useEffect(() => {
     if (hdd.connected) {
       void scan();
     }
   }, [hdd.connected, scan]);
 
-  // Simulate progress animation during scan
+  // Tarama sürerken ilerleme çubuğunu oynat (arka uç gerçek yüzde bildirmiyor)
   useEffect(() => {
-    if (!isScanning) { setProgress(0); return; }
+    if (!isScanning) {
+      setProgress(0);
+      return;
+    }
     setProgress(5);
     const t = setInterval(() => setProgress((p) => Math.min(p + Math.random() * 8, 90)), 400);
     return () => clearInterval(t);
   }, [isScanning]);
-
-  useEffect(() => {
-    if (!isScanning && scanResult) setProgress(100);
-  }, [isScanning, scanResult]);
 
   useEffect(() => {
     const loadHints = async () => {
@@ -291,7 +254,7 @@ export default function InboxAnalyzer() {
       }
 
       try {
-        // ignoreDirs expects folder names (not full paths); extract last segment if absolute
+        // ignoreDirs klasör adı bekler (tam yol değil); mutlak yolsa son parçayı al
         const inboxName = settings.inbox_dir.includes("/")
           ? settings.inbox_dir.replace(/\/$/, "").split("/").pop() ?? settings.inbox_dir
           : settings.inbox_dir;
@@ -308,175 +271,138 @@ export default function InboxAnalyzer() {
     void loadHints();
   }, [hdd.connected, scanResult, settings.hdd_root, settings.inbox_dir, settings.archive_dir, settings.review_dir, settings.edits_dir, settings.staging_dir]);
 
-  const highConfidence = scanResult?.sessions.filter((s) => s.confidence.toLowerCase() === "high") ?? [];
+  const sessions = scanResult?.sessions ?? [];
+  const unclassified = scanResult?.unclassified?.length ?? 0;
+  const pendingHigh = sessions.filter(
+    (s) => s.confidence.toLowerCase() === "high" && !approvedSessions.has(s.id)
+  );
 
   const handleOperationStart = useCallback(() => setIsOperating(true), []);
   const handleOperationEnd = useCallback(() => setIsOperating(false), []);
 
   const bulkApprove = async () => {
     setIsOperating(true);
-    for (const session of highConfidence) {
-      if (!approvedSessions.has(session.id)) {
-        const pairs: [string, string][] = [];
-        for (const f of session.files) {
-          const deviceDir = (f.device || "Unknown_Device").replace(/\s+/g, "_");
-          const destDir = `${settings.hdd_root}/${session.suggested_path}/${deviceDir}`;
-          pairs.push([f.path, `${destDir}/${f.filename}`]);
-          if (f.sidecars?.length) {
-            for (const sc of f.sidecars) {
-              const scName = sc.split("/").pop() ?? sc.split("\\").pop() ?? sc;
-              pairs.push([sc, `${destDir}/${scName}`]);
-            }
-          }
-        }
-        try {
-          if (settings.operations.dry_run_first) {
-            const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
-            if (!preview.success) {
-              console.error("Dry run failed:", preview.failed);
-              continue;
-            }
-          }
-
-          const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
-          if (result.success) {
-            approveSession(session.id);
-          } else {
-            console.error("Copy failed:", result.failed);
-          }
-        } catch { /* continue */ }
+    setBulkFailures(0);
+    let failures = 0;
+    for (const session of pendingHigh) {
+      try {
+        await copySession(settings, buildCopyPairs(settings, session.suggested_path, session));
+        approveSession(session.id);
+      } catch (err) {
+        console.error("Copy failed:", err);
+        failures += 1;
       }
     }
+    setBulkFailures(failures);
     setIsOperating(false);
   };
 
+  let status: string;
+  if (isScanning) status = "Gelen klasörü taranıyor";
+  else if (scanResult) status = `${n(scanResult.total_files)} dosya tarandı, ${n(sessions.length)} oturum bulundu.`;
+  else status = "Henüz taranmadı.";
+
   return (
-    <div className="space-y-5 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-[#e8eaf6]">INBOX Analizörü</h1>
-          <p className="text-sm text-[#565e80] mt-0.5">
-            {scanResult
-              ? `${scanResult.total_files} dosya tarandı · ${scanResult.sessions.length} oturum tespit edildi`
-              : "Hazır"}
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={isScanning ? <Spinner size={14} /> : <ScanLine size={14} />}
-          onClick={() => void scan()}
-          disabled={!hdd.connected || isScanning}
-          loading={isScanning}
-        >
-          {isScanning ? "Taranıyor…" : "Yeniden Tara"}
-        </Button>
-      </div>
-
-      {/* Progress */}
-      {(isScanning || progress > 0) && (
-        <div className="space-y-1.5">
-          <ProgressBar value={isScanning ? progress : 100} color={isScanning ? "#6c8cff" : "#3dd68c"} />
-          <p className="text-xs text-[#565e80]">
-            {isScanning ? "INBOX taranıyor…" : "Tarama tamamlandı"}
-          </p>
-        </div>
-      )}
-
-      {/* Bulk approve */}
-      {highConfidence.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-[rgba(61,214,140,0.07)] border border-[rgba(61,214,140,0.18)]">
-          <div className="flex items-center gap-2">
-            <Layers size={15} className="text-[#3dd68c]" />
-            <span className="text-sm text-[#e8eaf6]">
-              <span className="font-semibold">{highConfidence.length}</span>
-              <span className="text-[#565e80] ml-1">yüksek güven skorlu oturum otomatik onaylanabilir (EXIF/GPS/tarih sinyali güçlü)</span>
-            </span>
-          </div>
-          <Button variant="success" size="sm" onClick={() => void bulkApprove()}>
-            Tümünü Onayla
+    <div className="space-y-6">
+      <PageHeader title="Gelen" status={status}>
+        {pendingHigh.length > 0 && (
+          <Button variant="primary" onClick={() => void bulkApprove()} disabled={isOperating}>
+            Yüksek güvenli {n(pendingHigh.length)} oturumu onayla ve kopyala
           </Button>
-        </div>
+        )}
+        <Button onClick={() => void scan()} disabled={!hdd.connected} loading={isScanning}>
+          {isScanning ? "Taranıyor" : "Yeniden tara"}
+        </Button>
+      </PageHeader>
+
+      {isScanning && <ProgressBar value={progress} label="Tarama ilerlemesi" />}
+
+      {bulkFailures > 0 && (
+        <Notice tone="stop" title={`${n(bulkFailures)} oturum kopyalanamadı`}>
+          Bu oturumlar listede onaylanmamış olarak duruyor. Tek tek onaylayarak hangi dosyada takıldığını görebilirsiniz.
+        </Notice>
       )}
 
-      {/* Unclassified warning */}
-      {(scanResult?.unclassified?.length ?? 0) > 0 && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[rgba(240,178,58,0.07)] border border-[rgba(240,178,58,0.18)]">
-          <p className="text-sm text-[#e8eaf6]">
-            <span className="font-semibold text-[#f0b23a]">{scanResult!.unclassified.length}</span>
-            <span className="text-[#565e80] ml-1">dosya sınıflandırılamadı — REVIEW'e gönderildi</span>
-          </p>
-        </div>
+      {unclassified > 0 && (
+        <Notice
+          title={`${n(unclassified)} dosya sınıflandırılamadı`}
+          action={<Button onClick={() => navigate("/review")}>İncelemeye git</Button>}
+        >
+          Tarih, cihaz veya konum bilgisi yetersiz olduğu için bu dosyalar bir oturuma yerleştirilemedi.
+        </Notice>
       )}
 
-      {/* No HDD */}
       {!hdd.connected && (
-        <Card className="text-center py-12 text-[#565e80]">
-          HDD bağlı değil. Ayarlar'dan yol seçin.
-        </Card>
+        <Notice
+          title="Disk bağlı değil"
+          action={!settings.hdd_root ? <Button onClick={() => navigate("/settings")}>Disk seç</Button> : undefined}
+        >
+          {settings.hdd_root
+            ? "Diski takın; bağlandığında gelen klasörü kendiliğinden taranır."
+            : "Taramak için önce Ayarlar'dan arşiv diskini seçin."}
+        </Notice>
       )}
 
-      {/* Scan error */}
       {hdd.connected && scanError && (
-        <Card className="py-6 border border-[rgba(224,82,82,0.28)] bg-[rgba(224,82,82,0.06)]">
-          <p className="text-sm text-[#f2c2c2] font-medium">Tarama basarisiz</p>
-          <p className="text-xs text-[#e79a9a] mt-1 break-all">{scanError}</p>
-          <p className="text-xs text-[#d9b2b2] mt-3">
-            Beklenen INBOX yolu: <span className="font-mono">{inboxPath}</span>
+        <Notice tone="stop" title="Tarama yapılamadı">
+          <p className="m-0 break-all">{scanError}</p>
+          <p className="m-0 mt-2">
+            Beklenen gelen klasörü: <span className="font-mono">{inboxPath}</span>
           </p>
-        </Card>
+        </Notice>
       )}
 
-      {/* Not yet scanned */}
       {hdd.connected && !isScanning && !scanResult && !scanError && (
-        <Card className="text-center py-12 text-[#565e80]">
-          INBOX taranmadı. Yukarıdan Tara butonuna tıklayın.
-        </Card>
+        <Notice title="Gelen klasörü henüz taranmadı">Başlamak için "Yeniden tara" düğmesini kullanın.</Notice>
       )}
 
-      {/* Session cards */}
-      {scanResult && scanResult.sessions.length === 0 && !isScanning && (
-        <Card className="text-center py-12 text-[#565e80]">
-          INBOX boş — işlenecek dosya yok.
-        </Card>
+      {scanResult && sessions.length === 0 && !isScanning && folderHints.length === 0 && (
+        <Notice title="Gelen klasörü boş">
+          Yeni fotoğraf ve videoları <span className="font-mono">{inboxPath}</span> klasörüne kopyalayıp yeniden tarayın.
+        </Notice>
       )}
 
       {scanResult && scanResult.total_files === 0 && folderHints.length > 0 && (
-        <Card className="py-4 border border-[rgba(240,178,58,0.28)] bg-[rgba(240,178,58,0.06)]">
-          <p className="text-sm text-[#f3cd8a] font-medium">INBOX boş ama kök klasörde medya bulundu</p>
-          <p className="text-xs text-[#ceb281] mt-1">Tarama sadece INBOX klasörünü analiz eder. Aşağıdaki klasörlerden birini INBOX olarak ayarlayabilirsiniz.</p>
-          <div className="mt-3 space-y-2">
+        <section>
+          <Notice title="Gelen klasörü boş, ama diskin kökünde fotoğraf ve video var">
+            Tarama yalnızca gelen klasörüne bakar. Aşağıdaki klasörlerden birini gelen klasörü olarak seçebilirsiniz.
+          </Notice>
+          <ul className="list-none m-0 mt-4 p-0 border-t border-edge">
             {folderHints.slice(0, 5).map((hint) => (
-              <div key={hint.path} className="flex items-center justify-between gap-3 px-3 py-2 rounded bg-[rgba(13,15,24,0.45)] border border-[rgba(240,178,58,0.18)]">
+              <li key={hint.path} className="flex items-center justify-between gap-4 py-3 border-b border-edge">
                 <div className="min-w-0">
-                  <p className="text-sm text-[#e8eaf6] truncate">{hint.name}</p>
-                  <p className="text-xs text-[#7e85a7] truncate">{hint.path}</p>
+                  <p className="m-0 font-medium truncate">{hint.name}</p>
+                  <p className="m-0 font-mono text-xs text-dim truncate">{hint.path}</p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-[#f0b23a] font-medium">{hint.media_count} dosya</span>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-[13px] text-dim">{n(hint.media_count)} dosya</span>
                   <Button
-                    size="sm"
-                    variant="outline"
                     onClick={() => {
                       setSettings({ inbox_dir: hint.path });
                       void scan(hint.path);
                     }}
                   >
-                    INBOX Yap
+                    Gelen klasörü yap
                   </Button>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
-        </Card>
+          </ul>
+        </section>
       )}
 
-      <div className="grid gap-4">
-        {scanResult?.sessions.map((session) => (
-          <SessionCard key={session.id} session={session} onOperationStart={handleOperationStart} onOperationEnd={handleOperationEnd} />
-        ))}
-      </div>
+      {sessions.length > 0 && (
+        <ul className="list-none m-0 p-0">
+          {sessions.map((session) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              onOperationStart={handleOperationStart}
+              onOperationEnd={handleOperationEnd}
+            />
+          ))}
+        </ul>
+      )}
 
       <OperationProgress active={isOperating} onComplete={handleOperationEnd} />
     </div>

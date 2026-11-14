@@ -1,56 +1,56 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, MapPin, Camera, Film, Copy, Move, CheckCheck } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { ArrowLeft } from "lucide-react";
 import { useInboxStore } from "../store/useInboxStore";
 import { useAppStore } from "../store/useAppStore";
-import Badge, { confidenceTone } from "../components/ui/Badge";
 import Button from "../components/ui/Button";
-import Card from "../components/ui/Card";
+import ConfidenceMeter from "../components/ui/ConfidenceMeter";
+import { Frame } from "../components/ui/ContactStrip";
+import { Notice, Segmented, inputClass } from "../components/ui/Page";
 import type { Session, FileOpResult } from "../types";
-import { deviceFolderSegment } from "../utils/device";
+import { deviceFolderSegment, deviceLabel, deviceList } from "../utils/device";
+import { formatDateRange, formatFileCounts } from "../utils/formatters";
 
-const DEVICE_COLORS: Record<string, string> = {
-  "Sony α6700": "#6c8cff",
-  "Canon 6D": "#f0b23a",
-  "Canon 60D": "#f09a3a",
-  "iPhone": "#3dd68c",
-  "Samsung Note8": "#a78bfa",
-  "Unknown": "#565e80",
-};
+const n = (value: number) => value.toLocaleString("tr-TR");
+const PAGE_SIZE = 40;
 
-function FileGrid({ session }: { session: Session }) {
+function ContactSheet({ session }: { session: Session }) {
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 20;
-  const paged = session.files.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(session.files.length / PAGE_SIZE);
+  const offset = page * PAGE_SIZE;
+  const paged = session.files.slice(offset, offset + PAGE_SIZE);
 
   return (
     <div>
-      <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-2 gap-y-3">
         {paged.map((file, i) => (
-          <div
-            key={i}
-            className="aspect-square rounded-lg bg-[#1a1d2e] border border-[#252840] overflow-hidden flex items-center justify-center group"
-            title={file.filename}
-          >
-            {file.kind === "photo" ? (
-              <Camera size={20} className="text-[#363b60] group-hover:text-[#6c8cff] transition-colors" />
-            ) : (
-              <Film size={20} className="text-[#363b60] group-hover:text-[#a78bfa] transition-colors" />
-            )}
-          </div>
+          <Frame key={file.path} file={file} number={offset + i + 1} />
         ))}
       </div>
       {totalPages > 1 && (
-        <div className="flex gap-2 mt-3 justify-center">
-          <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>← Önceki</Button>
-          <span className="text-xs text-[#565e80] flex items-center">{page + 1} / {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page === totalPages - 1} onClick={() => setPage((p) => p + 1)}>Sonraki →</Button>
+        <div className="flex items-center gap-3 mt-5">
+          <Button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+            Önceki sayfa
+          </Button>
+          <span className="condensed text-[13px] text-dim">
+            {page + 1} / {totalPages}
+          </span>
+          <Button disabled={page === totalPages - 1} onClick={() => setPage((p) => p + 1)}>
+            Sonraki sayfa
+          </Button>
         </div>
       )}
     </div>
+  );
+}
+
+function SideSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="py-5 border-b border-edge first:pt-0 last:border-b-0">
+      <h2 className="text-[13px] font-medium text-dim m-0 mb-2.5">{title}</h2>
+      {children}
+    </section>
   );
 }
 
@@ -59,8 +59,9 @@ export default function SessionDetailPage() {
   const navigate = useNavigate();
   const { scanResult } = useInboxStore();
   const { settings } = useAppStore();
-  const [useMove, setUseMove] = useState(false);
+  const [mode, setMode] = useState<"copy" | "move">("copy");
   const [result, setResult] = useState<FileOpResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [customPath, setCustomPath] = useState("");
 
@@ -72,244 +73,188 @@ export default function SessionDetailPage() {
 
   if (!session) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-[#565e80] gap-4">
-        <p>Oturum bulunamadı.</p>
-        <Button variant="outline" size="sm" onClick={() => navigate("/inbox")}>← Geri Dön</Button>
-      </div>
+      <Notice
+        title="Bu oturum artık listede yok"
+        action={<Button onClick={() => navigate("/inbox")}>Gelen'e dön</Button>}
+      >
+        Gelen klasörü yeniden tarandığında oturumlar baştan oluşturulur.
+      </Notice>
     );
   }
 
-  // Device distribution for pie chart
+  const useMove = mode === "move";
+  const verb = useMove ? "taşı" : "kopyala";
+
   const deviceCounts: Record<string, number> = {};
   session.files.forEach((f) => {
     deviceCounts[f.device] = (deviceCounts[f.device] ?? 0) + 1;
   });
-  const pieData = Object.entries(deviceCounts).map(([name, value]) => ({ name, value }));
+  const deviceRows = Object.entries(deviceCounts).sort((a, b) => b[1] - a[1]);
 
-  const photoCount = session.files.filter((f) => f.kind === "photo").length;
-  const videoCount = session.files.filter((f) => f.kind === "video").length;
-  const previewTargets = session.files.slice(0, 3).map((f) =>
-    `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`
-  );
+  const targetFor = (f: Session["files"][number]) =>
+    `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`;
+  const previewTargets = session.files.slice(0, 3).map(targetFor);
+  const gpsFiles = session.files.filter((f) => f.has_gps);
 
   const runOperation = async () => {
     if (!settings.hdd_root) return;
     setRunning(true);
+    setError(null);
     const command = useMove ? "move_files" : "copy_files";
-    const pairs = session.files.map((f) => [
-      f.path,
-      `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`,
-    ] as [string, string]);
+    const pairs = session.files.map((f) => [f.path, targetFor(f)] as [string, string]);
     try {
       if (settings.operations.dry_run_first) {
-        const preview = await invoke<FileOpResult>(command, {
-          files: pairs,
-          dryRun: true,
-        });
+        const preview = await invoke<FileOpResult>(command, { files: pairs, dryRun: true });
         if (!preview.success) {
           setResult(preview);
           return;
         }
       }
-
-      const res = await invoke<FileOpResult>(command, {
-        files: pairs,
-        dryRun: false,
-      });
+      const res = await invoke<FileOpResult>(command, { files: pairs, dryRun: false });
       setResult(res);
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setRunning(false);
     }
   };
 
+  const createdFolders = result?.success
+    ? Array.from(new Set(result.moved.map((p) => p.replace(/[\\/][^\\/]+$/, "")).filter(Boolean)))
+    : [];
+
   return (
-    <div className="space-y-5 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" icon={<ArrowLeft size={15} />} onClick={() => navigate("/inbox")}>
-          Geri
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-semibold text-[#e8eaf6] truncate">{session.suggested_path}</h1>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <span className="text-xs text-[#565e80]">
-              {session.date_start?.slice(0, 10)} {session.date_end && session.date_end !== session.date_start ? `→ ${session.date_end.slice(0, 10)}` : ""}
-            </span>
-            <Badge tone={confidenceTone(session.confidence)} dot>{session.confidence}</Badge>
-            {session.has_gps && <Badge tone="accent"><MapPin size={10} className="inline" /> GPS</Badge>}
-          </div>
+    <div>
+      <Button variant="quiet" icon={<ArrowLeft size={14} />} onClick={() => navigate("/inbox")} className="-ml-3">
+        Gelen
+      </Button>
+
+      <div className="flex items-end justify-between gap-6 pt-3 pb-5 border-b border-edge">
+        <div className="min-w-0">
+          <h1 className="display text-[30px] m-0 break-words">
+            {customPath.split("/").filter(Boolean).pop() ?? "Oturum"}
+          </h1>
+          <p className="text-dim mt-1.5 mb-0">
+            {formatDateRange(session.date_start, session.date_end)}, {formatFileCounts(session.files)}.{" "}
+            {deviceList(session.devices)} ile çekildi.
+          </p>
         </div>
+        <ConfidenceMeter level={session.confidence} className="mb-1" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left: files */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Toplam", value: session.files.length },
-              { label: "Fotoğraf", value: photoCount },
-              { label: "Video", value: videoCount },
-            ].map(({ label, value }) => (
-              <Card key={label} className="text-center py-3">
-                <p className="text-2xl font-semibold text-[#e8eaf6]">{value}</p>
-                <p className="text-xs text-[#565e80] mt-0.5">{label}</p>
-              </Card>
-            ))}
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-10 pt-6">
+        <ContactSheet session={session} />
 
-          {/* File grid */}
-          <Card>
-            <h3 className="text-sm font-medium text-[#8890b4] mb-3">Dosyalar</h3>
-            <FileGrid session={session} />
-          </Card>
-        </div>
-
-        {/* Right: metadata + actions */}
-        <div className="space-y-4">
-          {/* Device chart */}
-          {pieData.length > 0 && (
-            <Card>
-              <h3 className="text-sm font-medium text-[#8890b4] mb-3">Cihaz Dağılımı</h3>
-              <ResponsiveContainer width="100%" height={140}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={60}
-                    paddingAngle={2}
-                  >
-                    {pieData.map((entry) => (
-                      <Cell
-                        key={entry.name}
-                        fill={DEVICE_COLORS[entry.name] ?? "#565e80"}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: "#13161f", border: "1px solid #252840", borderRadius: 8, fontSize: 12 }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-1.5 mt-2">
-                {pieData.map((d) => (
-                  <div key={d.name} className="flex items-center gap-2 text-xs">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DEVICE_COLORS[d.name] ?? "#565e80" }} />
-                    <span className="text-[#8890b4] flex-1">{d.name}</span>
-                    <span className="text-[#565e80]">{d.value}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          {/* GPS info */}
-          {session.has_gps && (
-            <Card>
-              <h3 className="text-sm font-medium text-[#8890b4] mb-2">Konum</h3>
-              {session.files.find((f) => f.has_gps) ? (
-                <div className="text-xs text-[#565e80] space-y-1">
-                  {session.files.filter((f) => f.has_gps).slice(0, 3).map((f, i) => (
-                    <div key={i} className="font-mono">
-                      {f.gps_lat?.toFixed(5)}, {f.gps_lon?.toFixed(5)}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </Card>
-          )}
-
-          {/* Target path editor */}
-          <Card>
-            <h3 className="text-sm font-medium text-[#8890b4] mb-2">Hedef Yol</h3>
+        <aside>
+          <SideSection title="Hedef klasör">
             <input
+              aria-label="Hedef klasör"
               value={customPath}
               onChange={(e) => setCustomPath(e.target.value)}
-              className="w-full bg-[#0d0f18] border border-[#252840] focus:border-[#6c8cff] rounded px-3 py-1.5 text-xs text-[#e8eaf6] outline-none font-mono"
+              className={`${inputClass} w-full font-mono`}
             />
             {previewTargets.length > 0 && (
-              <div className="mt-2 space-y-1">
-                <p className="text-[11px] text-[#8a91b1]">Ornek hedefler (ilk 3 dosya):</p>
-                {previewTargets.map((target, idx) => (
-                  <p key={`${target}-${idx}`} className="text-[11px] text-[#7a82a3] font-mono break-all">
-                    {idx + 1}. {target}
+              <div className="mt-2.5">
+                <p className="text-xs text-dim m-0">İlk dosyaların gideceği yer:</p>
+                {previewTargets.map((target) => (
+                  <p key={target} className="font-mono text-xs text-dim break-all m-0 mt-1">
+                    {target}
                   </p>
                 ))}
               </div>
             )}
-          </Card>
+          </SideSection>
 
-          {/* Move vs Copy toggle */}
-          <Card padded={false} className="p-4">
-            <h3 className="text-sm font-medium text-[#8890b4] mb-3">İşlem Türü</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setUseMove(false)}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border transition-all ${
-                  !useMove ? "bg-[rgba(108,140,255,0.15)] border-[rgba(108,140,255,0.4)] text-[#6c8cff]" : "border-[#252840] text-[#565e80] hover:border-[#363b60]"
-                }`}
-              >
-                <Copy size={12} /> Kopyala
-              </button>
-              <button
-                onClick={() => setUseMove(true)}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border transition-all ${
-                  useMove ? "bg-[rgba(240,178,58,0.15)] border-[rgba(240,178,58,0.4)] text-[#f0b23a]" : "border-[#252840] text-[#565e80] hover:border-[#363b60]"
-                }`}
-              >
-                <Move size={12} /> Taşı
-              </button>
-            </div>
-            {settings.operations.dry_run_first && (
-              <p className="text-xs text-[#565e80] mt-2 text-center">⚠ Ön izleme modu aktif</p>
-            )}
-          </Card>
+          <SideSection title="Cihazlar">
+            <ul className="list-none m-0 p-0 space-y-2">
+              {deviceRows.map(([device, count]) => (
+                <li key={device} className="text-[13px]">
+                  <div className="flex justify-between gap-3">
+                    <span>{deviceLabel(device)}</span>
+                    <span className="condensed text-dim">{n(count)}</span>
+                  </div>
+                  <div className="h-1 mt-1 bg-well rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-paper"
+                      style={{ width: `${(count / session.files.length) * 100}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </SideSection>
 
-          {/* Execute */}
-          <Button
-            variant="primary"
-            className="w-full"
-            icon={useMove ? <Move size={14} /> : <Copy size={14} />}
-            loading={running}
-            disabled={running || !settings.hdd_root}
-            onClick={() => void runOperation()}
-          >
-            {settings.operations.dry_run_first ? (useMove ? "Onizleme + Tasi" : "Onizleme + Kopyala") : useMove ? "Taşı" : "Kopyala"}
-          </Button>
-
-          {/* Result */}
-          {result && (
-            <Card className={result.success ? "border-[rgba(61,214,140,0.35)]" : "border-[rgba(224,82,82,0.35)]"}>
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCheck size={14} className={result.success ? "text-[#3dd68c]" : "text-[#e05252]"} />
-                <span className="text-sm font-medium text-[#e8eaf6]">
-                  {result.dry_run ? "Simülasyon" : result.success ? "Başarılı" : "Bazı Hatalar"}
-                </span>
-              </div>
-              <p className="text-xs text-[#565e80]">{result.moved.length} işlendi, {result.failed.length} hata</p>
-              {result.success && result.moved.length > 0 && (
-                <div className="mt-2 rounded-md border border-[rgba(61,214,140,0.22)] bg-[rgba(61,214,140,0.08)] px-2 py-2">
-                  <p className="text-[11px] text-[#9dddbf] mb-1">Olusturulan klasorler:</p>
-                  {Array.from(
-                    new Set(result.moved.map((p) => p.replace(/[\\/][^\\/]+$/, "")).filter(Boolean))
-                  )
-                    .slice(0, 5)
-                    .map((folder, idx) => (
-                      <p key={`${folder}-${idx}`} className="text-[11px] text-[#7fd0ab] font-mono break-all">
-                        {idx + 1}. {folder}
-                      </p>
-                    ))}
-                </div>
-              )}
-            </Card>
+          {gpsFiles.length > 0 && (
+            <SideSection title="Konum">
+              <p className="text-[13px] m-0">{n(gpsFiles.length)} dosyada konum bilgisi var.</p>
+              {gpsFiles.slice(0, 3).map((f) => (
+                <p key={f.path} className="font-mono text-xs text-dim m-0 mt-1">
+                  {f.gps_lat?.toFixed(5)}, {f.gps_lon?.toFixed(5)}
+                </p>
+              ))}
+            </SideSection>
           )}
-        </div>
+
+          <SideSection title="İşlem">
+            <Segmented
+              label="İşlem türü"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "copy", label: "Kopyala" },
+                { value: "move", label: "Taşı" },
+              ]}
+            />
+            <p className="text-xs text-dim m-0 mt-2.5">
+              {useMove
+                ? "Dosyalar gelen klasöründen silinip arşive taşınır."
+                : "Dosyalar arşive kopyalanır; gelen klasöründekiler yerinde kalır."}
+              {settings.operations.dry_run_first && " Önce bir ön kontrol yapılır."}
+            </p>
+            <Button
+              variant="primary"
+              size="md"
+              className="w-full mt-4"
+              loading={running}
+              disabled={!settings.hdd_root}
+              onClick={() => void runOperation()}
+            >
+              {n(session.files.length)} dosyayı {verb}
+            </Button>
+
+            {error && (
+              <p role="alert" className="text-[13px] text-stop m-0 mt-3 break-words">
+                Dosyalar {useMove ? "taşınamadı" : "kopyalanamadı"}: {error}
+              </p>
+            )}
+
+            {result && (
+              <div
+                role="status"
+                className={`mt-4 border-l-2 pl-3 text-[13px] ${result.success ? "border-done" : "border-stop"}`}
+              >
+                <p className={`font-medium m-0 ${result.success ? "" : "text-stop"}`}>
+                  {result.dry_run
+                    ? `Ön kontrol ${n(result.failed.length)} dosyada takıldı; hiçbir dosyaya dokunulmadı.`
+                    : result.success
+                    ? `${n(result.moved.length)} dosya ${useMove ? "taşındı" : "kopyalandı"}`
+                    : `${n(result.failed.length)} dosya ${useMove ? "taşınamadı" : "kopyalanamadı"}, ${n(result.moved.length)} dosya tamamlandı`}
+                </p>
+                {createdFolders.slice(0, 5).map((folder) => (
+                  <p key={folder} className="font-mono text-xs text-dim break-all m-0 mt-1">
+                    {folder}
+                  </p>
+                ))}
+                {!result.success &&
+                  result.failed.slice(0, 5).map((f) => (
+                    <p key={f} className="font-mono text-xs text-dim break-all m-0 mt-1">
+                      {f}
+                    </p>
+                  ))}
+              </div>
+            )}
+          </SideSection>
+        </aside>
       </div>
     </div>
   );

@@ -13,7 +13,9 @@ export function formatBytes(bytes: number): string {
  */
 export function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("tr-TR", {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+  return date.toLocaleDateString("tr-TR", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -35,22 +37,6 @@ export function formatDateTime(iso: string | null): string {
 }
 
 /**
- * Return a badge colour class for a confidence level.
- */
-export function confidenceColor(level: string): string {
-  switch (level.toLowerCase()) {
-    case "high":
-      return "text-[#4caf82] bg-[#4caf82]/10";
-    case "medium":
-      return "text-[#f0a830] bg-[#f0a830]/10";
-    case "low":
-      return "text-[#e05252] bg-[#e05252]/10";
-    default:
-      return "text-[#8b92a9] bg-[#8b92a9]/10";
-  }
-}
-
-/**
  * Return a human-readable label for a confidence level (Turkish).
  */
 export function confidenceLabel(level: string): string {
@@ -62,6 +48,31 @@ export function confidenceLabel(level: string): string {
     case "low":
       return "Düşük";
     default:
-      return "Sinyal Yok";
+      return "Sinyal yok";
   }
+}
+
+/**
+ * Format a session's date span: one date, or "start – end" when it covers several days.
+ */
+export function formatDateRange(start: string | null, end: string | null): string {
+  if (!start) return "Tarih bilinmiyor";
+  if (!end || end.slice(0, 10) === start.slice(0, 10)) return formatDate(start);
+  return `${formatDate(start)} – ${formatDate(end)}`;
+}
+
+/**
+ * Describe a file count by kind, e.g. "42 dosya: 38 fotoğraf, 4 video".
+ */
+export function formatFileCounts(files: { kind: string }[]): string {
+  const n = (v: number) => v.toLocaleString("tr-TR");
+  const photos = files.filter((f) => f.kind === "photo").length;
+  const videos = files.filter((f) => f.kind === "video").length;
+  const parts: string[] = [];
+  if (photos > 0) parts.push(`${n(photos)} fotoğraf`);
+  if (videos > 0) parts.push(`${n(videos)} video`);
+  if (parts.length === 0 || (parts.length === 1 && photos + videos === files.length)) {
+    return parts[0] ?? `${n(files.length)} dosya`;
+  }
+  return `${n(files.length)} dosya: ${parts.join(", ")}`;
 }

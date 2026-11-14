@@ -5,25 +5,12 @@ export const DEVICE_LABELS: Record<string, string> = {
   Canon_60D: "Canon 60D",
   iPhone: "iPhone",
   Samsung_Note8: "Samsung Note8",
-  Unknown_Device: "Bilinmeyen",
+  Unknown_Device: "Bilinmeyen cihaz",
+  Unknown: "Bilinmeyen cihaz",
 };
 
 export function deviceLabel(device: string): string {
   return DEVICE_LABELS[device] ?? device;
-}
-
-/** Device accent colors for chips and charts */
-export const DEVICE_COLORS: Record<string, string> = {
-  Sony_a6700: "#6c8cff",
-  Canon_6D: "#f0b23a",
-  Canon_60D: "#f09a3a",
-  iPhone: "#3dd68c",
-  Samsung_Note8: "#a78bfa",
-  Unknown_Device: "#565e80",
-};
-
-export function deviceColor(device: string): string {
-  return DEVICE_COLORS[device] ?? "#565e80";
 }
 
 export function deviceFolderSegment(device: string): string {
@@ -31,11 +18,21 @@ export function deviceFolderSegment(device: string): string {
   return device || "Unknown_Device";
 }
 
-/** Format bytes to KB / MB / GB / TB */
+/** Format bytes to KB / MB / GB / TB (decimal units, Turkish number format). */
 export function formatBytes(bytes: number | null | undefined): string {
   if (!bytes || bytes === 0) return "—";
-  if (bytes < 1e6) return `${(bytes / 1e3).toFixed(0)} KB`;
-  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes < 1e12) return `${(bytes / 1e9).toFixed(2)} GB`;
-  return `${(bytes / 1e12).toFixed(2)} TB`;
+  const fmt = (value: number, digits: number) =>
+    value.toLocaleString("tr-TR", { maximumFractionDigits: digits });
+  if (bytes < 1e6) return `${fmt(bytes / 1e3, 0)} KB`;
+  if (bytes < 1e9) return `${fmt(bytes / 1e6, 1)} MB`;
+  if (bytes < 1e12) return `${fmt(bytes / 1e9, 1)} GB`;
+  return `${fmt(bytes / 1e12, 2)} TB`;
+}
+
+/** List the devices of a session in a sentence-friendly form. */
+export function deviceList(devices: string[]): string {
+  const names = devices.map(deviceLabel);
+  if (names.length === 0) return "Cihaz bilinmiyor";
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(", ")} ve ${names[names.length - 1]}`;
 }

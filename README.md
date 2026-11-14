@@ -16,7 +16,7 @@
 │  │   Tailwind CSS v4           │  │    Tauri v2 Commands   │  │
 │  │   Zustand state             │  │                        │  │
 │  │   React Router v6           │  │  analyzer.rs           │  │
-│  │   Recharts / Framer Motion  │  │  classifier.rs         │  │
+│  │   Archivo / IBM Plex Mono   │  │  classifier.rs         │  │
 │  │   Lucide Icons              │  │  mover.rs              │  │
 │  └──────────┬──────────────────┘  │  duplicate.rs          │  │
 │             │ invoke()            │  zip_handler.rs         │  │
@@ -169,7 +169,7 @@ Katman 5 → Cihaz davranış örüntüsü (iPhone GPS taşır, Sony taşımaz �
 | State | Zustand |
 | Routing | React Router v6 |
 | Icons | Lucide React |
-| Charts | Recharts |
+| Fonts | Archivo, IBM Plex Mono (uygulamaya gömülü) |
 | Animations | Framer Motion |
 | Backend | Rust |
 | EXIF | kamadak-exif |
@@ -217,6 +217,9 @@ npm install
 
 # Geliştirme modunda başlat
 npm run tauri dev
+
+# Arayüzü disk olmadan, örnek verilerle tarayıcıda aç
+npm run dev:demo
 ```
 
 ### Derleme / Build
