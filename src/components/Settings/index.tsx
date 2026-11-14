@@ -211,17 +211,6 @@ export default function Settings() {
             ]}
           />
         </Row>
-        <Row label="Dil">
-          <select
-            aria-label="Dil"
-            value={settings.ui.language}
-            onChange={(e) => setSettings({ ui: { ...settings.ui, language: e.target.value } })}
-            className={inputClass}
-          >
-            <option value="tr">Türkçe</option>
-            <option value="en">English</option>
-          </select>
-        </Row>
         <Row label="Kayıt klasörü">
           <span className="font-mono text-[13px] text-dim">{settings.log_dir}</span>
         </Row>

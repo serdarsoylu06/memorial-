@@ -31,8 +31,7 @@ export default defineConfig(async () => ({
       output: {
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
-          motion: ["framer-motion"],
-          tauri: ["@tauri-apps/api", "@tauri-apps/plugin-dialog", "@tauri-apps/plugin-fs", "@tauri-apps/plugin-shell"],
+          tauri: ["@tauri-apps/api", "@tauri-apps/plugin-dialog"],
         },
       },
     },

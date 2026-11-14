@@ -11,17 +11,23 @@ interface FileProgress {
 
 interface OperationProgressProps {
   active: boolean;
+  mode?: "copy" | "move";
   onComplete?: () => void;
 }
 
-const STATUS_LABELS: Record<FileProgress["status"], string> = {
-  copying: "Kopyalanıyor",
-  verifying: "Doğrulanıyor",
-  done: "Kopyalandı",
-  failed: "Kopyalanamadı",
+const WORDS = {
+  copy: { doing: "Kopyalanıyor", done: "Kopyalandı", failed: "kopyalanamadı", title: "Dosyalar kopyalanıyor", end: "Kopyalama bitti", bar: "Kopyalama ilerlemesi" },
+  move: { doing: "Taşınıyor", done: "Taşındı", failed: "taşınamadı", title: "Dosyalar taşınıyor", end: "Taşıma bitti", bar: "Taşıma ilerlemesi" },
 };
 
-export default function OperationProgress({ active, onComplete }: OperationProgressProps) {
+export default function OperationProgress({ active, mode = "copy", onComplete }: OperationProgressProps) {
+  const words = WORDS[mode];
+  const statusLabel: Record<FileProgress["status"], string> = {
+    copying: words.doing,
+    verifying: "Doğrulanıyor",
+    done: words.done,
+    failed: words.failed.charAt(0).toUpperCase() + words.failed.slice(1),
+  };
   const [progress, setProgress] = useState<FileProgress | null>(null);
   const [failedFiles, setFailedFiles] = useState<string[]>([]);
   const [finished, setFinished] = useState(false);
@@ -68,7 +74,7 @@ export default function OperationProgress({ active, onComplete }: OperationProgr
         className="w-full max-w-md mx-4 bg-table border border-edge-strong rounded-sm p-6 shadow-2xl"
       >
         <h2 id="op-progress-title" className="display text-xl m-0">
-          {finished ? "Kopyalama bitti" : "Dosyalar kopyalanıyor"}
+          {finished ? words.end : words.title}
         </h2>
 
         <div className="flex items-baseline justify-between mt-4 mb-2 text-[13px] text-dim">
@@ -77,15 +83,15 @@ export default function OperationProgress({ active, onComplete }: OperationProgr
           </span>
           <span className="condensed text-paper">%{pct}</span>
         </div>
-        <ProgressBar value={pct} tone={tone} label="Kopyalama ilerlemesi" />
+        <ProgressBar value={pct} tone={tone} label={words.bar} />
 
         <p className="font-mono text-[13px] truncate mt-4 mb-0">{progress.filename}</p>
-        <p className="text-[13px] text-dim m-0">{STATUS_LABELS[progress.status]}</p>
+        <p className="text-[13px] text-dim m-0">{statusLabel[progress.status]}</p>
 
         {failedFiles.length > 0 && (
           <div role="alert" className="mt-4 border-l-2 border-stop pl-3">
             <p className="text-[13px] text-stop font-medium m-0">
-              {failedFiles.length} dosya kopyalanamadı
+              {failedFiles.length} dosya {words.failed}
             </p>
             {failedFiles.slice(0, 3).map((f, i) => (
               <p key={`${f}-${i}`} className="font-mono text-xs text-dim truncate m-0">

@@ -36,17 +36,25 @@ function buildCopyPairs(settings: AppSettings, targetPath: string, session: Sess
   return pairs;
 }
 
-/** Önce deneme (ayar açıksa), sonra gerçek kopyalama. Hata varsa Error fırlatır. */
-async function copySession(settings: AppSettings, pairs: [string, string][]): Promise<FileOpResult> {
+/** Ayarlardaki varsayılan işleme göre arayüz sözcükleri. */
+function wording(settings: AppSettings) {
+  return settings.operations.default_mode === "move"
+    ? { command: "move_files", act: "taşı", done: "Taşındı", failed: "taşınamadı", untouched: "taşınmadı" }
+    : { command: "copy_files", act: "kopyala", done: "Kopyalandı", failed: "kopyalanamadı", untouched: "kopyalanmadı" };
+}
+
+/** Önce deneme (ayar açıksa), sonra gerçek işlem: ayara göre kopyalar ya da taşır. Hata varsa Error fırlatır. */
+async function fileSession(settings: AppSettings, pairs: [string, string][]): Promise<FileOpResult> {
+  const w = wording(settings);
   if (settings.operations.dry_run_first) {
-    const preview = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: true });
+    const preview = await invoke<FileOpResult>(w.command, { files: pairs, dryRun: true });
     if (!preview.success) {
-      throw new Error(`Ön kontrol ${preview.failed.length} dosyada takıldı; hiçbir dosya kopyalanmadı.`);
+      throw new Error(`Ön kontrol ${preview.failed.length} dosyada takıldı; hiçbir dosya ${w.untouched}.`);
     }
   }
-  const result = await invoke<FileOpResult>("copy_files", { files: pairs, dryRun: false });
+  const result = await invoke<FileOpResult>(w.command, { files: pairs, dryRun: false });
   if (!result.success) {
-    throw new Error(`${result.failed.length} dosya kopyalanamadı.`);
+    throw new Error(`${result.failed.length} dosya ${w.failed}.`);
   }
   return result;
 }
@@ -136,7 +144,7 @@ function SessionRow({
 
     onOperationStart();
     try {
-      const result = await copySession(settings, buildCopyPairs(settings, customPath, session));
+      const result = await fileSession(settings, buildCopyPairs(settings, customPath, session));
       const folders = Array.from(
         new Set(result.moved.map((p) => p.replace(/[\\/][^\\/]+$/, "")).filter(Boolean))
       );
@@ -149,6 +157,7 @@ function SessionRow({
   };
 
   const day = sessionDayLabel(session);
+  const w = wording(settings);
 
   return (
     <li
@@ -191,7 +200,7 @@ function SessionRow({
           <>
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => void approve()}>
-                Onayla ve kopyala
+                Onayla ve {w.act}
               </Button>
               <Button onClick={() => navigate(`/session/${session.id}`)}>Oturumu aç</Button>
               <Button variant="quiet" onClick={() => rejectSession(session.id)}>
@@ -208,7 +217,7 @@ function SessionRow({
 
         {isApproved && (
           <div className="text-[13px]">
-            <p className="m-0 font-medium">Kopyalandı</p>
+            <p className="m-0 font-medium">{w.done}</p>
             {createdFolders.slice(0, 3).map((folder) => (
               <p key={folder} className="font-mono text-xs text-dim break-all m-0 mt-0.5">
                 {folder}
@@ -298,16 +307,18 @@ export default function InboxAnalyzer() {
     let failures = 0;
     for (const session of pendingHigh) {
       try {
-        await copySession(settings, buildCopyPairs(settings, session.suggested_path, session));
+        await fileSession(settings, buildCopyPairs(settings, session.suggested_path, session));
         approveSession(session.id);
       } catch (err) {
-        console.error("Copy failed:", err);
+        console.error("Transfer failed:", err);
         failures += 1;
       }
     }
     setBulkFailures(failures);
     setIsOperating(false);
   };
+
+  const w = wording(settings);
 
   let status: string;
   if (isScanning) status = "Gelen klasörü taranıyor";
@@ -320,7 +331,7 @@ export default function InboxAnalyzer() {
       <PageHeader title="Gelen" status={status}>
         {pendingHigh.length > 0 && (
           <Button variant="primary" onClick={() => void bulkApprove()} disabled={isOperating}>
-            Yüksek güvenli {n(pendingHigh.length)} oturumu onayla ve kopyala
+            Yüksek güvenli {n(pendingHigh.length)} oturumu onayla ve {w.act}
           </Button>
         )}
         <Button onClick={() => void scan()} disabled={!hdd.connected} loading={isScanning}>
@@ -331,7 +342,7 @@ export default function InboxAnalyzer() {
       {isScanning && <ProgressBar value={progress} label="Tarama ilerlemesi" />}
 
       {bulkFailures > 0 && (
-        <Notice tone="stop" title={`${n(bulkFailures)} oturum kopyalanamadı`}>
+        <Notice tone="stop" title={`${n(bulkFailures)} oturum ${w.failed}`}>
           Bu oturumlar listede onaylanmamış olarak duruyor. Tek tek onaylayarak hangi dosyada takıldığını görebilirsiniz.
         </Notice>
       )}
@@ -419,7 +430,7 @@ export default function InboxAnalyzer() {
         </ul>
       )}
 
-      <OperationProgress active={isOperating} onComplete={handleOperationEnd} />
+      <OperationProgress active={isOperating} mode={settings.operations.default_mode} onComplete={handleOperationEnd} />
     </div>
   );
 }

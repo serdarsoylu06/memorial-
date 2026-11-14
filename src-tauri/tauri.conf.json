@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "memorial",
+  "productName": "Memorial",
   "version": "0.1.0",
   "identifier": "com.memorial.app",
   "build": {
@@ -24,8 +24,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; object-src 'none'; base-uri 'self'; frame-src 'none'",
-      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 ws://localhost:1421; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-src 'none'"
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:1420 ws://localhost:1420; img-src 'self' data: http://localhost:1420; font-src 'self' data: http://localhost:1420; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420"
     }
   },
   "bundle": {
