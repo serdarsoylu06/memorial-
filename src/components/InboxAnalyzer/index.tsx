@@ -12,22 +12,17 @@ import ContactStrip from "../ui/ContactStrip";
 import ProgressBar from "../ui/ProgressBar";
 import OperationProgress from "../ui/OperationProgress";
 import { Notice, PageHeader, PathText, inputClass } from "../ui/Page";
-import type { AppSettings, FileOpResult, MediaFile, MediaFolderHint, Session } from "../../types";
-import { deviceList } from "../../utils/device";
+import type { AppSettings, FileOpResult, MediaFolderHint, Session } from "../../types";
+import { destinationDir, deviceList } from "../../utils/device";
 import { formatDateRange, formatFileCounts } from "../../utils/formatters";
 
 const n = (value: number) => value.toLocaleString("tr-TR");
-
-function destinationDir(settings: AppSettings, targetPath: string, file: MediaFile): string {
-  const deviceDir = (file.device || "Unknown_Device").replace(/\s+/g, "_");
-  return `${settings.hdd_root}/${targetPath}/${deviceDir}`;
-}
 
 /** Bir oturumun dosyaları (ve yan dosyaları) için kaynak → hedef çiftleri. */
 function buildCopyPairs(settings: AppSettings, targetPath: string, session: Session): [string, string][] {
   const pairs: [string, string][] = [];
   for (const f of session.files) {
-    const destDir = destinationDir(settings, targetPath, f);
+    const destDir = destinationDir(settings.hdd_root, targetPath, f);
     pairs.push([f.path, `${destDir}/${f.filename}`]);
     // Yan dosyalar (.aae, .xmp, .thm) asıl dosyayla birlikte gider
     if (f.sidecars?.length) {
@@ -120,7 +115,7 @@ function SessionRow({
 
   const firstFile = session.files[0];
   const firstTarget = firstFile
-    ? `${destinationDir(settings, customPath, firstFile)}/${firstFile.filename}`
+    ? `${destinationDir(settings.hdd_root, customPath, firstFile)}/${firstFile.filename}`
     : null;
 
   const approve = async () => {

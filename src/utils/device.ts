@@ -15,7 +15,21 @@ export function deviceLabel(device: string): string {
 
 export function deviceFolderSegment(device: string): string {
   // Device key IS the folder segment now (e.g. "Sony_a6700", "iPhone")
-  return device || "Unknown_Device";
+  return (device || "Unknown_Device").replace(/\s+/g, "_");
+}
+
+/**
+ * Archive folder a file is filed into:
+ *   <hddRoot>/<targetPath>/<Photos|Videos>/<Device>
+ * Every screen that copies or moves files must build destinations through this.
+ */
+export function destinationDir(
+  hddRoot: string,
+  targetPath: string,
+  file: { kind: string; device: string }
+): string {
+  const mediaFolder = file.kind === "video" ? "Videos" : "Photos";
+  return `${hddRoot}/${targetPath}/${mediaFolder}/${deviceFolderSegment(file.device)}`;
 }
 
 /** Format bytes to KB / MB / GB / TB (decimal units, Turkish number format). */

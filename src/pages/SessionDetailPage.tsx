@@ -9,7 +9,7 @@ import ConfidenceMeter from "../components/ui/ConfidenceMeter";
 import { Frame } from "../components/ui/ContactStrip";
 import { Notice, Segmented, inputClass } from "../components/ui/Page";
 import type { Session, FileOpResult } from "../types";
-import { deviceFolderSegment, deviceLabel, deviceList } from "../utils/device";
+import { destinationDir, deviceLabel, deviceList } from "../utils/device";
 import { formatDateRange, formatFileCounts } from "../utils/formatters";
 
 const n = (value: number) => value.toLocaleString("tr-TR");
@@ -92,7 +92,7 @@ export default function SessionDetailPage() {
   const deviceRows = Object.entries(deviceCounts).sort((a, b) => b[1] - a[1]);
 
   const targetFor = (f: Session["files"][number]) =>
-    `${settings.hdd_root}/${customPath}/${f.kind === "video" ? "Videos" : "Photos"}/${deviceFolderSegment(f.device)}/${f.filename}`;
+    `${destinationDir(settings.hdd_root, customPath, f)}/${f.filename}`;
   const previewTargets = session.files.slice(0, 3).map(targetFor);
   const gpsFiles = session.files.filter((f) => f.has_gps);
 
