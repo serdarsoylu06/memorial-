@@ -26,6 +26,12 @@ function swatch(seed: number): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+function stamp(base: string, minutes: number): string {
+  const d = new Date(new Date(base).getTime() + minutes * 60_000);
+  const p = (v: number) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 function files(opts: {
   folder: string;
   count: number;
@@ -37,6 +43,8 @@ function files(opts: {
   video?: boolean;
   thumbs?: boolean;
   start?: number;
+  /** Dosyaların yayıldığı süre, dakika; verilmezse hepsi aynı anda çekilmiş olur. */
+  spread?: number;
 }): MediaFile[] {
   return Array.from({ length: opts.count }, (_, i) => {
     const num = String((opts.start ?? 1) + i).padStart(4, "0");
@@ -45,7 +53,7 @@ function files(opts: {
       path: `${ROOT}/INBOX/${opts.folder}/${filename}`,
       filename,
       size_bytes: opts.video ? 480_000_000 : 31_000_000,
-      created_at: opts.date,
+      created_at: stamp(opts.date, opts.spread ? (opts.spread * i) / Math.max(1, opts.count - 1) : 0),
       device: opts.device,
       has_gps: !!opts.gps,
       gps_lat: opts.gps ? 40.5601 + i * 0.0003 : null,
@@ -61,9 +69,9 @@ const sessions: Session[] = [
   {
     id: "s1",
     files: [
-      ...files({ folder: "kumbet", count: 38, prefix: "DSC0", ext: "ARW", device: "Sony_a6700", date: "2024-06-14T09:12:00" }),
-      ...files({ folder: "kumbet", count: 9, prefix: "IMG_", ext: "HEIC", device: "iPhone", date: "2024-06-14T10:40:00", gps: true }),
-      ...files({ folder: "kumbet", count: 4, prefix: "C", ext: "MP4", device: "Sony_a6700", date: "2024-06-14T12:05:00", video: true }),
+      ...files({ folder: "kumbet", count: 38, prefix: "DSC0", ext: "ARW", device: "Sony_a6700", date: "2024-06-14T09:12:00", spread: 95 }),
+      ...files({ folder: "kumbet", count: 9, prefix: "IMG_", ext: "HEIC", device: "iPhone", date: "2024-06-14T14:50:00", gps: true, spread: 170 }),
+      ...files({ folder: "kumbet", count: 4, prefix: "C", ext: "MP4", device: "Sony_a6700", date: "2024-06-14T12:05:00", video: true, spread: 20 }),
     ],
     date_start: "2024-06-14T09:12:00",
     date_end: "2024-06-14T17:48:00",
@@ -74,7 +82,7 @@ const sessions: Session[] = [
   },
   {
     id: "s2",
-    files: files({ folder: "haziran", count: 23, prefix: "IMG_", ext: "JPG", device: "iPhone", date: "2024-06-03T18:20:00", gps: true, thumbs: true, start: 4410 }),
+    files: files({ folder: "haziran", count: 23, prefix: "IMG_", ext: "JPG", device: "iPhone", date: "2024-06-03T18:20:00", gps: true, thumbs: true, start: 4410, spread: 8800 }),
     date_start: "2024-06-03T18:20:00",
     date_end: "2024-06-09T21:02:00",
     devices: ["iPhone"],
@@ -85,8 +93,8 @@ const sessions: Session[] = [
   {
     id: "s3",
     files: [
-      ...files({ folder: "istanbul", count: 112, prefix: "IMG_", ext: "CR2", device: "Canon_6D", date: "2024-08-14T11:00:00", start: 7001 }),
-      ...files({ folder: "istanbul", count: 6, prefix: "MVI_", ext: "MOV", device: "Canon_6D", date: "2024-08-15T15:30:00", video: true, start: 7200 }),
+      ...files({ folder: "istanbul", count: 112, prefix: "IMG_", ext: "CR2", device: "Canon_6D", date: "2024-08-14T11:00:00", start: 7001, spread: 3300 }),
+      ...files({ folder: "istanbul", count: 6, prefix: "MVI_", ext: "MOV", device: "Canon_6D", date: "2024-08-15T15:30:00", video: true, start: 7200, spread: 60 }),
     ],
     date_start: "2024-08-14T11:00:00",
     date_end: "2024-08-16T19:30:00",

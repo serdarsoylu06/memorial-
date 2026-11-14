@@ -8,13 +8,14 @@ import { useHDDStatus } from "../../hooks/useHDDStatus";
 import { useInboxScan } from "../../hooks/useInboxScan";
 import Button from "../ui/Button";
 import ConfidenceMeter from "../ui/ConfidenceMeter";
-import ContactStrip from "../ui/ContactStrip";
+import TimeRibbon, { YearRibbons } from "../ui/TimeRibbon";
 import ProgressBar from "../ui/ProgressBar";
 import OperationProgress from "../ui/OperationProgress";
 import { Notice, PageHeader, PathText, inputClass } from "../ui/Page";
 import type { AppSettings, FileOpResult, MediaFolderHint, Session } from "../../types";
 import { destinationDir, deviceList } from "../../utils/device";
-import { formatDateRange, formatFileCounts } from "../../utils/formatters";
+import { formatFileCounts } from "../../utils/formatters";
+import { sessionDayLabel } from "../../utils/timeline";
 
 const n = (value: number) => value.toLocaleString("tr-TR");
 
@@ -147,64 +148,80 @@ function SessionRow({
     onOperationEnd();
   };
 
+  const day = sessionDayLabel(session);
+
   return (
-    <li className={`py-6 border-b border-edge last:border-b-0 ${isRejected ? "opacity-50" : ""}`}>
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0 flex-1">
-          {isApproved || isRejected ? (
-            <PathText path={customPath} className="block truncate text-[15px]" />
-          ) : (
-            <PathEditor value={customPath} onChange={setCustomPath} />
-          )}
-          <p className="text-[13px] text-dim m-0 mt-1">
-            {formatDateRange(session.date_start, session.date_end)}, {formatFileCounts(session.files)}.{" "}
-            {deviceList(session.devices)} ile çekildi{session.has_gps ? "; konum bilgisi var." : "."}
-          </p>
-        </div>
-        <ConfidenceMeter level={session.confidence} className="mt-0.5" />
+    <li
+      id={`oturum-${session.id}`}
+      className={`py-6 border-b border-edge last:border-b-0 scroll-mt-4 grid grid-cols-1 md:grid-cols-[112px_minmax(0,1fr)] xl:grid-cols-[112px_minmax(0,1fr)_250px] gap-x-7 gap-y-4 ${
+        isRejected ? "opacity-50" : ""
+      }`}
+    >
+      <div>
+        <p className="display text-[30px] m-0 whitespace-nowrap">{day.main}</p>
+        <p className="text-[13px] text-dim m-0 mt-1">{day.sub}</p>
       </div>
 
-      <ContactStrip files={session.files} marked={isApproved} className="mt-4" />
+      <div className="min-w-0">
+        {isApproved || isRejected ? (
+          <PathText path={customPath} className="block truncate text-[15px]" />
+        ) : (
+          <PathEditor value={customPath} onChange={setCustomPath} />
+        )}
+        <p className="text-[13px] text-dim m-0 mt-1">
+          {formatFileCounts(session.files)}. {deviceList(session.devices)} ile çekildi.
+        </p>
+        <TimeRibbon files={session.files} marked={isApproved} className="mt-3.5" />
+        {!isApproved && !isRejected && firstTarget && (
+          <p className="text-xs text-dim m-0 mt-3 truncate" title={firstTarget}>
+            İlk dosyanın gideceği yer: <span className="font-mono">{firstTarget}</span>
+          </p>
+        )}
+      </div>
 
-      {!isApproved && !isRejected && (
-        <>
-          {firstTarget && (
-            <p className="text-xs text-dim m-0 mt-3 truncate" title={firstTarget}>
-              İlk dosyanın gideceği yer: <span className="font-mono">{firstTarget}</span>
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="text-[13px] text-stop m-0 mt-3">
-              {error}
-            </p>
-          )}
-          <div className="flex gap-2 mt-4">
-            <Button variant="primary" onClick={() => void approve()}>
-              Onayla ve kopyala
-            </Button>
-            <Button onClick={() => navigate(`/session/${session.id}`)}>Oturumu aç</Button>
-            <Button variant="quiet" onClick={() => rejectSession(session.id)}>
-              Reddet
-            </Button>
-          </div>
-        </>
-      )}
-
-      {isApproved && (
-        <div className="mt-3 text-[13px]">
-          <p className="m-0 font-medium">Kopyalandı</p>
-          {createdFolders.slice(0, 3).map((folder) => (
-            <p key={folder} className="font-mono text-xs text-dim truncate m-0 mt-0.5" title={folder}>
-              {folder}
-            </p>
-          ))}
-          {createdFolders.length > 3 && (
-            <p className="text-xs text-dim m-0 mt-0.5">ve {createdFolders.length - 3} klasör daha</p>
-          )}
+      <div className="md:col-start-2 xl:col-start-3 flex flex-col gap-3">
+        <div>
+          <ConfidenceMeter level={session.confidence} />
+          <p className="text-[13px] text-dim m-0 mt-1">
+            {session.has_gps ? "Karelerde konum bilgisi var." : "Karelerde konum bilgisi yok."}
+          </p>
         </div>
-      )}
 
-      {isRejected && <p className="mt-3 mb-0 text-[13px] text-dim">Reddedildi; dosyalar gelen klasöründe kaldı.</p>}
+        {!isApproved && !isRejected && (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" onClick={() => void approve()}>
+                Onayla ve kopyala
+              </Button>
+              <Button onClick={() => navigate(`/session/${session.id}`)}>Oturumu aç</Button>
+              <Button variant="quiet" onClick={() => rejectSession(session.id)}>
+                Reddet
+              </Button>
+            </div>
+            {error && (
+              <p role="alert" className="text-[13px] text-stop m-0">
+                {error}
+              </p>
+            )}
+          </>
+        )}
+
+        {isApproved && (
+          <div className="text-[13px]">
+            <p className="m-0 font-medium">Kopyalandı</p>
+            {createdFolders.slice(0, 3).map((folder) => (
+              <p key={folder} className="font-mono text-xs text-dim break-all m-0 mt-0.5">
+                {folder}
+              </p>
+            ))}
+            {createdFolders.length > 3 && (
+              <p className="text-xs text-dim m-0 mt-0.5">ve {createdFolders.length - 3} klasör daha</p>
+            )}
+          </div>
+        )}
+
+        {isRejected && <p className="m-0 text-[13px] text-dim">Reddedildi; dosyalar gelen klasöründe kaldı.</p>}
+      </div>
     </li>
   );
 }
@@ -294,7 +311,8 @@ export default function InboxAnalyzer() {
 
   let status: string;
   if (isScanning) status = "Gelen klasörü taranıyor";
-  else if (scanResult) status = `${n(scanResult.total_files)} dosya tarandı, ${n(sessions.length)} oturum bulundu.`;
+  else if (scanResult)
+    status = `${n(scanResult.total_files)} dosya, ${n(sessions.length)} oturum. Her çizgi bir dosyanın çekildiği anı gösterir.`;
   else status = "Henüz taranmadı.";
 
   return (
@@ -385,6 +403,8 @@ export default function InboxAnalyzer() {
           </ul>
         </section>
       )}
+
+      {sessions.length > 0 && <YearRibbons sessions={sessions} />}
 
       {sessions.length > 0 && (
         <ul className="list-none m-0 p-0">

@@ -33,7 +33,7 @@ const defaultSettings: AppSettings = {
     phash_threshold: 10,
   },
   ui: {
-    theme: "dark",
+    theme: "light",
     language: "tr",
   },
 };

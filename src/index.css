@@ -13,6 +13,7 @@
  *   faint   kare numaraları gibi en geri plandaki metin
  *   mark    mumlu kalem: yalnızca "seçildi / onaylandı" işareti
  *   on-mark mumlu kalem renginin üstündeki metin (iki temada da koyu)
+ *   trace   zaman şeridindeki çekim çizgileri
  *   stop    ret ve hata
  *   done    tamamlanan dosya işlemi
  */
@@ -28,6 +29,7 @@
   --faint: #7f7e78;
   --mark: #f2c230;
   --on-mark: #1f2022;
+  --trace: #7fc1c9;
   --stop: #ec6a57;
   --done: #6fbf8b;
 }
@@ -44,6 +46,7 @@
   --dim: #55564f;
   --faint: #74756f;
   --mark: #e0a800;
+  --trace: #1d5c63;
   --stop: #b93a26;
   --done: #2e7d4f;
 }
@@ -59,6 +62,7 @@
   --color-faint: var(--faint);
   --color-mark: var(--mark);
   --color-on-mark: var(--on-mark);
+  --color-trace: var(--trace);
   --color-stop: var(--stop);
   --color-done: var(--done);
 
