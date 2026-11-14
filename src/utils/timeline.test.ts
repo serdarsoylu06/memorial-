@@ -37,6 +37,18 @@ describe("buildRibbon", () => {
   });
 });
 
+describe("wall-clock times", () => {
+  it("shows a capture time as recorded, whatever the computer's timezone", () => {
+    // 23:30 must stay on the 14th and read 23:30 even where local time is ahead of UTC.
+    const ribbon = buildRibbon([{ created_at: "2024-06-14T23:10:00+00:00" }, { created_at: "2024-06-14T23:30:00+00:00" }])!;
+    expect(ribbon.axis[0].startsWith("22:5")).toBe(true);
+    expect(sessionDayLabel({ date_start: "2024-06-14T23:10:00+00:00", date_end: "2024-06-14T23:30:00+00:00" })).toEqual({
+      main: "14 Haz",
+      sub: "2024, Cuma",
+    });
+  });
+});
+
 describe("sessionDayLabel", () => {
   it("formats single-day, same-month and cross-month sessions", () => {
     expect(sessionDayLabel({ date_start: "2024-06-14T09:12:00", date_end: "2024-06-14T17:48:00" }).main).toBe("14 Haz");

@@ -1,8 +1,9 @@
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 
 /// Accept wire-format timestamps and both raw/display EXIF timestamps.
-/// EXIF values without an offset retain the existing application's UTC convention;
-/// this does not infer the camera timezone.
+/// EXIF values carry no offset: they are wall-clock times and are kept as if they
+/// were UTC. The camera timezone is not inferred, and the interface displays every
+/// timestamp in UTC so the wall-clock time comes back unchanged.
 pub(crate) fn parse_datetime(value: &str) -> Option<DateTime<Utc>> {
     if let Ok(date) = DateTime::parse_from_rfc3339(value) {
         return Some(date.with_timezone(&Utc));

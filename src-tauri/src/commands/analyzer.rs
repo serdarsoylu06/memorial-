@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use super::media_time::parse_datetime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -265,7 +265,7 @@ fn is_noise_folder(name: &str) -> bool {
 }
 
 /// Parse a single media file from disk, extracting metadata and EXIF.
-fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<MediaFile> {
+pub(crate) fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<MediaFile> {
     let ext = path.extension()?.to_str()?;
     if !is_media_file(ext) {
         return None;
@@ -287,10 +287,13 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
         if let Ok(file) = std::fs::File::open(path) {
             let mut bufreader = std::io::BufReader::new(file);
             if let Ok(exif_reader) = exif::Reader::new().read_from_container(&mut bufreader) {
-                // DateTimeOriginal
-                if let Some(field) = exif_reader.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                    created_at = parse_datetime(&field.display_value().to_string()).map(|dt| dt.to_rfc3339());
-                }
+                // Capture time: the moment of exposure when recorded, otherwise the
+                // digitisation time, otherwise the file's own EXIF timestamp.
+                created_at = [exif::Tag::DateTimeOriginal, exif::Tag::DateTimeDigitized, exif::Tag::DateTime]
+                    .iter()
+                    .filter_map(|tag| exif_reader.get_field(*tag, exif::In::PRIMARY))
+                    .find_map(|field| parse_datetime(&field.display_value().to_string()))
+                    .map(|dt| dt.to_rfc3339());
                 // Make + Model
                 make_str = exif_reader
                     .get_field(exif::Tag::Make, exif::In::PRIMARY)
@@ -329,11 +332,17 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
     // Detect device using YAML rules (EXIF + filename fallback)
     let device = detect_device(rules, &make_str, &model_str, &filename);
 
-    // Timestamp fallback from filesystem
-    if created_at.is_none() {
+    // A photo without an EXIF capture time stays undated: its file time only says
+    // when it was last written, and filing by it would put old scans and downloads
+    // under today's date. Videos carry no EXIF here, and their file time is normally
+    // the recording time, so they keep the filesystem fallback.
+    if created_at.is_none() && kind == "video" {
         if let Ok(modified) = metadata.modified() {
-            let dt: DateTime<Utc> = modified.into();
-            created_at = Some(dt.to_rfc3339());
+            // EXIF times are wall-clock times without a zone and are carried as if
+            // they were UTC. The file time is converted to local wall-clock time
+            // first, so both kinds line up when displayed.
+            let local: DateTime<Local> = modified.into();
+            created_at = Some(Utc.from_utc_datetime(&local.naive_local()).to_rfc3339());
         }
     }
 
@@ -558,6 +567,16 @@ fn calculate_confidence_and_path(
         .first()
         .and_then(|f| find_meaningful_folder(&f.path, inbox_root));
 
+    // A session whose files are all undated can still be dated by a folder named
+    // like "2024-06-14_Kumbet-Yaylasi". With no date at all there is nowhere in the
+    // archive to put it: it is left for review.
+    let folder_date = folder_event.as_deref().and_then(leading_date);
+    let date_start = date_start.map(String::from).or(folder_date);
+    let Some(date_start) = date_start else {
+        return (Confidence::None, "REVIEW".to_string());
+    };
+    let date_start = Some(date_start.as_str());
+
     // Resolve GPS location name from YAML
     let gps_file = own_gps.or(phone_gps);
     let location_name = gps_file.and_then(|f| {
@@ -566,6 +585,14 @@ fn calculate_confidence_and_path(
             _ => None,
         }
     });
+    // A location labelled EVERYDAY is home ground: its photos are routine unless
+    // they sit in a named event folder.
+    let everyday = location_name
+        .as_deref()
+        .and_then(|name| locations.get(name))
+        .and_then(|rule| rule.label.as_deref())
+        .map(|label| label.eq_ignore_ascii_case("EVERYDAY"))
+        .unwrap_or(false);
 
     let confidence = if gps_file.is_some() && folder_event.is_some() {
         Confidence::High
@@ -581,9 +608,17 @@ fn calculate_confidence_and_path(
         date_start,
         location_name.as_deref(),
         folder_event.as_deref(),
+        everyday,
     );
 
     (confidence, path)
+}
+
+/// The date a folder name starts with ("2024-06-14_Kumbet-Yaylasi" → that day at
+/// midnight), as a timestamp in the same form as capture times.
+fn leading_date(name: &str) -> Option<String> {
+    let day = chrono::NaiveDate::parse_from_str(name.get(..10)?, "%Y-%m-%d").ok()?;
+    Some(Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0)?).to_rfc3339())
 }
 
 /// Strip leading date patterns from an event name to prevent duplication.
@@ -618,6 +653,7 @@ fn build_suggested_path(
     date_start: Option<&str>,
     location_name: Option<&str>,
     event_name: Option<&str>,
+    everyday: bool,
 ) -> String {
     let date = date_start
         .and_then(|s| parse_datetime(s))
@@ -625,12 +661,21 @@ fn build_suggested_path(
 
     let yyyy = date.format("%Y").to_string();
     let yyyy_mm_dd = date.format("%Y-%m-%d").to_string();
+    let yyyy_mm = date.format("%Y-%m").to_string();
 
     // Clean event name: strip any leading date to prevent "2026-03-15-2026-03-15_Wedding"
     let clean_event = event_name.map(|e| strip_date_prefix(e));
 
     // Priority: event name > GPS location > bare date
     match (clean_event, location_name) {
+        (Some(event), Some(_)) if everyday => {
+            // A named outing on home ground: the event name is enough
+            format!("ARCHIVE/{}/{}_{}", yyyy, yyyy_mm_dd, event)
+        }
+        (None, Some(_)) if everyday => {
+            // Routine photos on home ground, filed by month
+            format!("ARCHIVE/{}/EVERYDAY/{}", yyyy, yyyy_mm)
+        }
         (Some(event), Some(loc)) => {
             // Both event folder + GPS location
             format!("ARCHIVE/{}/{}_{}-{}", yyyy, yyyy_mm_dd, loc, event)
@@ -712,7 +757,15 @@ pub async fn scan_inbox(
         .await.map_err(|e| format!("Scan task failed: {e}"))?
 }
 
-fn scan_inbox_sync(inbox_path: &str, gap_hours: i64) -> Result<ScanResult, String> {
+/// The device rules compiled into the app.
+pub(crate) fn load_device_rules() -> Result<HashMap<String, DeviceRule>, String> {
+    let yaml_str = include_str!("../../../rules/devices.yaml");
+    serde_yaml::from_str::<DevicesConfig>(yaml_str)
+        .map(|config| config.devices)
+        .map_err(|e| format!("devices.yaml parse error: {e}"))
+}
+
+pub(crate) fn scan_inbox_sync(inbox_path: &str, gap_hours: i64) -> Result<ScanResult, String> {
     if !(1..=24).contains(&gap_hours) {
         return Err("Session gap must be between 1 and 24 hours".into());
     }
@@ -723,10 +776,7 @@ fn scan_inbox_sync(inbox_path: &str, gap_hours: i64) -> Result<ScanResult, Strin
     }
 
     // Load device rules from embedded YAML
-    let yaml_str = include_str!("../../../rules/devices.yaml");
-    let devices_config: DevicesConfig =
-        serde_yaml::from_str(yaml_str).map_err(|e| format!("devices.yaml parse error: {e}"))?;
-    let rules = &devices_config.devices;
+    let rules = &load_device_rules()?;
 
     // Walk directory, parse all media files
     let mut media_files: Vec<MediaFile> = Vec::new();
@@ -897,6 +947,54 @@ mod contract_tests {
         assert!(scan_inbox_sync("/missing-memorial-test-inbox", 2).is_err());
         assert!(scan_inbox_sync(".", 0).is_err());
         assert!(scan_inbox_sync(".", 25).is_err());
+    }
+
+    #[test]
+    fn undated_photos_are_left_for_review_unless_their_folder_dates_them() {
+        let disk = tempfile::tempdir().unwrap();
+        let inbox = disk.path().canonicalize().unwrap().join("INBOX");
+        let dated = inbox.join("2019-07-20_Yayla");
+        let undated = inbox.join("taramalar");
+        std::fs::create_dir_all(&dated).unwrap();
+        std::fs::create_dir_all(&undated).unwrap();
+        let blank = image::RgbImage::from_pixel(32, 24, image::Rgb([80, 90, 100]));
+        blank.save(inbox.join("loose.png")).unwrap();
+        blank.save(undated.join("scan.png")).unwrap();
+        blank.save(dated.join("old-print.png")).unwrap();
+        std::fs::write(inbox.join("clip.mp4"), b"not really a video").unwrap();
+
+        let scan = scan_inbox_sync(inbox.to_str().unwrap(), 2).unwrap();
+        assert_eq!(scan.total_files, 4);
+
+        let mut unclassified: Vec<&str> = scan.unclassified.iter().map(|f| f.filename.as_str()).collect();
+        unclassified.sort();
+        assert_eq!(unclassified, ["loose.png", "scan.png"], "undated photos with no dated folder go to review");
+        assert!(scan.unclassified.iter().all(|f| f.created_at.is_none()));
+
+        let by_folder = scan.sessions.iter().find(|s| s.files[0].filename == "old-print.png").unwrap();
+        assert_eq!(by_folder.suggested_path, "ARCHIVE/2019/2019-07-20_Yayla");
+
+        // A video has only its file time to go by and is still filed by it.
+        let video = scan.sessions.iter().find(|s| s.files[0].filename == "clip.mp4").unwrap();
+        assert!(video.date_start.is_some());
+        assert!(!video.suggested_path.contains("REVIEW"));
+    }
+
+    #[test]
+    fn suggested_paths_follow_the_naming_rules() {
+        let date = Some("2024-06-14T09:00:00+00:00");
+        assert_eq!(build_suggested_path(date, Some("Giresun"), None, true), "ARCHIVE/2024/EVERYDAY/2024-06");
+        assert_eq!(
+            build_suggested_path(date, Some("Giresun"), Some("2024-06-14_Kumbet-Yaylasi"), true),
+            "ARCHIVE/2024/2024-06-14_Kumbet-Yaylasi"
+        );
+        assert_eq!(
+            build_suggested_path(date, Some("Istanbul"), Some("Yemek-Festivali"), false),
+            "ARCHIVE/2024/2024-06-14_Istanbul-Yemek-Festivali"
+        );
+        assert_eq!(build_suggested_path(date, Some("Istanbul"), None, false), "ARCHIVE/2024/2024-06-14_Istanbul");
+        assert_eq!(build_suggested_path(date, None, Some("Dugun"), false), "ARCHIVE/2024/2024-06-14_Dugun");
+        assert_eq!(build_suggested_path(date, None, None, false), "ARCHIVE/2024/2024-06-14");
     }
 
     #[test]

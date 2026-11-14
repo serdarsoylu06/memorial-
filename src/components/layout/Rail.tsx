@@ -5,12 +5,11 @@ import { useInboxStore } from "../../store/useInboxStore";
 export default function Rail() {
   const scanResult = useInboxStore((s) => s.scanResult);
   const inboxCount = scanResult?.total_files ?? 0;
-  const reviewCount = scanResult?.unclassified?.length ?? 0;
 
   const items = [
     { to: "/", icon: LayoutGrid, label: "Genel bakış", count: 0 },
     { to: "/inbox", icon: Inbox, label: "Gelen", count: inboxCount },
-    { to: "/review", icon: CircleHelp, label: "İnceleme", count: reviewCount },
+    { to: "/review", icon: CircleHelp, label: "İnceleme", count: 0 },
     { to: "/archive", icon: FolderOpen, label: "Arşiv", count: 0 },
     { to: "/duplicates", icon: Copy, label: "Kopyalar", count: 0 },
     { to: "/settings", icon: Settings, label: "Ayarlar", count: 0 },

@@ -11,14 +11,26 @@ export function formatBytes(bytes: number): string {
 /**
  * Format an ISO date string to a localised display string.
  */
+/**
+ * Parse a timestamp from the backend. Capture times are wall-clock times carried
+ * as UTC, so a string without a zone is read as UTC and everything is displayed in UTC.
+ */
+export function parseTimestamp(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  const date = new Date(hasZone ? iso : `${iso.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  const date = new Date(iso);
+  const date = parseTimestamp(iso) ?? new Date(NaN);
   if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
   return date.toLocaleDateString("tr-TR", {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -27,12 +39,15 @@ export function formatDate(iso: string | null): string {
  */
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("tr-TR", {
+  const date = parseTimestamp(iso);
+  if (!date) return iso;
+  return date.toLocaleString("tr-TR", {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "UTC",
   });
 }
 

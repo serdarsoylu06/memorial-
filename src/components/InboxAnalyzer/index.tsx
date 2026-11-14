@@ -245,6 +245,9 @@ export default function InboxAnalyzer() {
   const [folderHints, setFolderHints] = useState<MediaFolderHint[]>([]);
   const [isOperating, setIsOperating] = useState(false);
   const [bulkFailures, setBulkFailures] = useState(0);
+  const [sendingToReview, setSendingToReview] = useState(false);
+  const [reviewMoved, setReviewMoved] = useState(0);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const inboxPath = settings.inbox_dir.startsWith("/")
     ? settings.inbox_dir
     : `${settings.hdd_root.replace(/\/$/, "")}/${settings.inbox_dir.replace(/^\//, "")}`;
@@ -320,6 +323,52 @@ export default function InboxAnalyzer() {
 
   const w = wording(settings);
 
+  /** Sınıflandırılamayan dosyaları, gelen klasöründeki alt klasör yapısını koruyarak inceleme klasörüne taşır. */
+  const sendToReview = async () => {
+    const files = scanResult?.unclassified ?? [];
+    if (files.length === 0 || !settings.hdd_root) return;
+    const reviewRoot = `${settings.hdd_root.replace(/\/$/, "")}/${settings.review_dir}`;
+    const pairs = files.flatMap((f) => {
+      const relative = f.path.startsWith(`${inboxPath}/`) ? f.path.slice(inboxPath.length + 1) : f.filename;
+      const dst = `${reviewRoot}/${relative}`;
+      const dir = dst.slice(0, dst.lastIndexOf("/"));
+      const sidecars = (f.sidecars ?? []).map((sc) => [sc, `${dir}/${sc.split("/").pop() ?? sc}`] as [string, string]);
+      return [[f.path, dst] as [string, string], ...sidecars];
+    });
+
+    setSendingToReview(true);
+    setReviewError(null);
+    try {
+      if (settings.operations.dry_run_first) {
+        const preview = await invoke<FileOpResult>("move_files", { files: pairs, dryRun: true });
+        if (!preview.success) {
+          setReviewError(`Ön kontrol ${n(preview.failed.length)} dosyada takıldı; hiçbir dosya taşınmadı. ${preview.failed[0] ?? ""}`);
+          return;
+        }
+      }
+      const result = await invoke<FileOpResult>("move_files", { files: pairs, dryRun: false });
+      const moved = new Set(pairs.filter(([, dst]) => result.moved.includes(dst)).map(([src]) => src));
+      // Taşınanlar tarama sonucundan düşülür; onaylar korunur.
+      useInboxStore.setState((state) =>
+        state.scanResult
+          ? {
+              scanResult: {
+                ...state.scanResult,
+                total_files: state.scanResult.total_files - files.filter((f) => moved.has(f.path)).length,
+                unclassified: state.scanResult.unclassified.filter((f) => !moved.has(f.path)),
+              },
+            }
+          : state
+      );
+      setReviewMoved(files.filter((f) => moved.has(f.path)).length);
+      if (!result.success) setReviewError(`${n(result.failed.length)} dosya taşınamadı.`);
+    } catch (err) {
+      setReviewError(`Dosyalar taşınamadı: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSendingToReview(false);
+    }
+  };
+
   let status: string;
   if (isScanning) status = "Gelen klasörü taranıyor";
   else if (scanResult)
@@ -349,11 +398,28 @@ export default function InboxAnalyzer() {
 
       {unclassified > 0 && (
         <Notice
-          title={`${n(unclassified)} dosya sınıflandırılamadı`}
-          action={<Button onClick={() => navigate("/review")}>İncelemeye git</Button>}
+          title={`${n(unclassified)} dosyanın çekim tarihi bilinmiyor`}
+          action={
+            <Button loading={sendingToReview} onClick={() => void sendToReview()}>
+              {n(unclassified)} dosyayı incelemeye taşı
+            </Button>
+          }
         >
-          Tarih, cihaz veya konum bilgisi yetersiz olduğu için bu dosyalar bir oturuma yerleştirilemedi.
+          Bu dosyalar bir oturuma yerleştirilemedi ve gelen klasöründe duruyor. İncelemeye taşırsanız orada tek tek
+          bakıp elle bir klasöre yerleştirebilirsiniz.
+          {reviewError && (
+            <span role="alert" className="block text-stop mt-2">
+              {reviewError}
+            </span>
+          )}
         </Notice>
+      )}
+
+      {reviewMoved > 0 && (
+        <Notice
+          title={`${n(reviewMoved)} dosya incelemeye taşındı`}
+          action={<Button onClick={() => navigate("/review")}>İncelemeye git</Button>}
+        />
       )}
 
       {!hdd.connected && (
