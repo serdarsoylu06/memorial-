@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use walkdir::WalkDir;
 
-use super::analyzer::MediaFile;
+use super::analyzer::{load_device_rules, parse_media_file, MediaFile};
 
 /// A node in the archive folder tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,13 +93,6 @@ pub(crate) fn is_media(ext: &str) -> bool {
     PHOTO_EXTS.iter().any(|e| *e == ext.as_str()) || VIDEO_EXTS.iter().any(|e| *e == ext.as_str())
 }
 
-fn file_kind(ext: &str) -> &'static str {
-    let ext = ext.to_lowercase();
-    if PHOTO_EXTS.iter().any(|e| *e == ext.as_str()) { "photo" }
-    else if VIDEO_EXTS.iter().any(|e| *e == ext.as_str()) { "video" }
-    else { "unknown" }
-}
-
 /// Find top-level folders under root that contain media files.
 #[tauri::command]
 pub async fn get_media_folder_hints(
@@ -171,38 +164,24 @@ pub async fn get_review_files(review_path: String) -> Result<Vec<MediaFile>, Str
         return Ok(vec![]);
     }
 
-    let mut files: Vec<MediaFile> = Vec::new();
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        let fname = entry.file_name().to_str().unwrap_or("");
-        if fname.starts_with('.') {
-            continue;
-        }
-        if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
-            if !is_media(ext) {
-                continue;
-            }
-            let meta = entry.metadata().ok();
-            let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-            files.push(MediaFile {
-                path: entry.path().to_string_lossy().to_string(),
-                filename: fname.to_string(),
-                size_bytes,
-                created_at: None,
-                device: "Unknown_Device".to_string(),
-                has_gps: false,
-                gps_lat: None,
-                gps_lon: None,
-                kind: file_kind(ext).to_string(),
-                sidecars: vec![],
-            });
-        }
-    }
-    Ok(files)
+    // Read each file the way the scan does, so the list shows what is actually
+    // known about it (device, capture time, location) and what is missing.
+    let rules = load_device_rules()?;
+    let root = root.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let mut files: Vec<MediaFile> = WalkDir::new(&root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+            .filter_map(|e| parse_media_file(e.path(), &rules))
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        files
+    })
+    .await
+    .map_err(|e| format!("Review listing failed: {e}"))
 }
 
 /// Open a file or folder in macOS Finder (or Windows Explorer).

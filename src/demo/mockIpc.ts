@@ -116,9 +116,9 @@ const sessions: Session[] = [
 ];
 
 const unclassified: MediaFile[] = [
-  { path: `${ROOT}/REVIEW/scan_0012.png`, filename: "scan_0012.png", size_bytes: 2_400_000, created_at: null, device: "Unknown", has_gps: false, gps_lat: null, gps_lon: null, kind: "photo", sidecars: [] },
-  { path: `${ROOT}/REVIEW/VID_20180811.mp4`, filename: "VID_20180811.mp4", size_bytes: 184_000_000, created_at: "2018-08-11T14:02:00", device: "Unknown", has_gps: false, gps_lat: null, gps_lon: null, kind: "video", sidecars: [] },
-  { path: `${ROOT}/REVIEW/IMG_2291.JPG`, filename: "IMG_2291.JPG", size_bytes: 5_100_000, created_at: null, device: "Samsung_Note8", has_gps: true, gps_lat: 40.91, gps_lon: 38.39, kind: "photo", sidecars: [] },
+  { path: `${ROOT}/INBOX/taramalar/scan_0012.png`, filename: "scan_0012.png", size_bytes: 2_400_000, created_at: null, device: "Unknown", has_gps: false, gps_lat: null, gps_lon: null, kind: "photo", sidecars: [] },
+  { path: `${ROOT}/INBOX/eski/VID_20180811.mp4`, filename: "VID_20180811.mp4", size_bytes: 184_000_000, created_at: "2018-08-11T14:02:00", device: "Unknown", has_gps: false, gps_lat: null, gps_lon: null, kind: "video", sidecars: [] },
+  { path: `${ROOT}/INBOX/eski/IMG_2291.JPG`, filename: "IMG_2291.JPG", size_bytes: 5_100_000, created_at: null, device: "Samsung_Note8", has_gps: true, gps_lat: 40.91, gps_lon: 38.39, kind: "photo", sidecars: [] },
 ];
 
 const scan: ScanResult = {

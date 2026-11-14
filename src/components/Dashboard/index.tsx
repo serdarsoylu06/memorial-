@@ -102,10 +102,10 @@ export default function Dashboard() {
           </p>
           {reviewCount > 0 && (
             <p className="mt-2 mb-0">
-              <Link to="/review" className="underline underline-offset-4 decoration-edge-strong hover:decoration-paper">
-                {n(reviewCount)} dosya sınıflandırılamadı
+              <Link to="/inbox" className="underline underline-offset-4 decoration-edge-strong hover:decoration-paper">
+                {n(reviewCount)} dosyanın çekim tarihi bilinmiyor
               </Link>
-              <span className="text-dim">; elle bakmanız gerekiyor.</span>
+              <span className="text-dim">; Gelen'den incelemeye taşıyabilirsiniz.</span>
             </p>
           )}
         </section>
