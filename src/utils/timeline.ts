@@ -1,17 +1,25 @@
 import type { Session } from "../types";
+import { parseTimestamp } from "./formatters";
 
 const DAY_MS = 86_400_000;
 const MONTHS_SHORT = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
 export { MONTHS_SHORT };
 
+// Çekim saatleri duvar saatidir ve UTC olarak taşınır; bu dosyadaki bütün
+// hesaplar ve gösterimler bu yüzden UTC üzerinden yapılır.
+
 function parse(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  return Number.isNaN(t) ? null : t;
+  return parseTimestamp(iso)?.getTime() ?? null;
 }
 
 function sameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth() && a.getUTCDate() === b.getUTCDate()
+  );
+}
+
+function dayStart(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
 export interface Ribbon {
@@ -47,12 +55,13 @@ export function buildRibbon(files: { created_at: string | null }[], resolution =
     from = min - pad;
     to = max + pad;
     const clock = (t: number) =>
-      new Date(t).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+      new Date(t).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
     axis = [clock(from), clock((from + to) / 2), clock(to)];
   } else {
-    from = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
-    to = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime() + DAY_MS;
-    const day = (t: number) => new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
+    from = dayStart(start);
+    to = dayStart(end) + DAY_MS;
+    const day = (t: number) =>
+      new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "long", timeZone: "UTC" });
     axis = [day(from), day((from + to - DAY_MS) / 2), day(to - DAY_MS)];
   }
 
@@ -74,24 +83,19 @@ export function sessionDayLabel(session: Pick<Session, "date_start" | "date_end"
   if (startT === null) return { main: "Tarihsiz", sub: "Çekim tarihi bilinmiyor" };
   const start = new Date(startT);
   const end = new Date(parse(session.date_end) ?? startT);
-  const month = (d: Date) => MONTHS_SHORT[d.getMonth()];
+  const month = (d: Date) => MONTHS_SHORT[d.getUTCMonth()];
 
   if (sameDay(start, end)) {
-    const weekday = start.toLocaleDateString("tr-TR", { weekday: "long" });
-    return { main: `${start.getDate()} ${month(start)}`, sub: `${start.getFullYear()}, ${weekday}` };
+    const weekday = start.toLocaleDateString("tr-TR", { weekday: "long", timeZone: "UTC" });
+    return { main: `${start.getUTCDate()} ${month(start)}`, sub: `${start.getUTCFullYear()}, ${weekday}` };
   }
 
-  const days =
-    Math.round(
-      (new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime() -
-        new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()) /
-        DAY_MS
-    ) + 1;
+  const days = Math.round((dayStart(end) - dayStart(start)) / DAY_MS) + 1;
   const main =
-    start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()
-      ? `${start.getDate()}–${end.getDate()} ${month(start)}`
-      : `${start.getDate()} ${month(start)} – ${end.getDate()} ${month(end)}`;
-  return { main, sub: `${start.getFullYear()}, ${days} gün` };
+    start.getUTCMonth() === end.getUTCMonth() && start.getUTCFullYear() === end.getUTCFullYear()
+      ? `${start.getUTCDate()}–${end.getUTCDate()} ${month(start)}`
+      : `${start.getUTCDate()} ${month(start)} – ${end.getUTCDate()} ${month(end)}`;
+  return { main, sub: `${start.getUTCFullYear()}, ${days} gün` };
 }
 
 export interface YearSpan {
@@ -111,9 +115,9 @@ export function groupByYear(
     const startT = parse(s.date_start);
     if (startT === null) continue;
     const endT = Math.max(parse(s.date_end) ?? startT, startT);
-    const year = new Date(startT).getFullYear();
-    const yearStart = new Date(year, 0, 1).getTime();
-    const yearLength = new Date(year + 1, 0, 1).getTime() - yearStart;
+    const year = new Date(startT).getUTCFullYear();
+    const yearStart = Date.UTC(year, 0, 1);
+    const yearLength = Date.UTC(year + 1, 0, 1) - yearStart;
     const left = ((startT - yearStart) / yearLength) * 100;
     // En kısa oturum bile seçilebilecek kadar geniş çizilir.
     const width = Math.max(((Math.min(endT, yearStart + yearLength) - startT) / yearLength) * 100, 0.6);

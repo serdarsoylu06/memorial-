@@ -15,7 +15,7 @@ operations:
 duplicates:
   sha256_check: true
   phash_check: true
-  phash_threshold: 10
+  phash_threshold: 4
 
 ui:
   theme: dark

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use super::media_time::parse_datetime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -287,10 +287,13 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
         if let Ok(file) = std::fs::File::open(path) {
             let mut bufreader = std::io::BufReader::new(file);
             if let Ok(exif_reader) = exif::Reader::new().read_from_container(&mut bufreader) {
-                // DateTimeOriginal
-                if let Some(field) = exif_reader.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                    created_at = parse_datetime(&field.display_value().to_string()).map(|dt| dt.to_rfc3339());
-                }
+                // Capture time: the moment of exposure when recorded, otherwise the
+                // digitisation time, otherwise the file's own EXIF timestamp.
+                created_at = [exif::Tag::DateTimeOriginal, exif::Tag::DateTimeDigitized, exif::Tag::DateTime]
+                    .iter()
+                    .filter_map(|tag| exif_reader.get_field(*tag, exif::In::PRIMARY))
+                    .find_map(|field| parse_datetime(&field.display_value().to_string()))
+                    .map(|dt| dt.to_rfc3339());
                 // Make + Model
                 make_str = exif_reader
                     .get_field(exif::Tag::Make, exif::In::PRIMARY)
@@ -332,8 +335,11 @@ fn parse_media_file(path: &Path, rules: &HashMap<String, DeviceRule>) -> Option<
     // Timestamp fallback from filesystem
     if created_at.is_none() {
         if let Ok(modified) = metadata.modified() {
-            let dt: DateTime<Utc> = modified.into();
-            created_at = Some(dt.to_rfc3339());
+            // EXIF times are wall-clock times without a zone and are carried as if
+            // they were UTC. The file time is converted to local wall-clock time
+            // first, so both kinds line up when displayed.
+            let local: DateTime<Local> = modified.into();
+            created_at = Some(Utc.from_utc_datetime(&local.naive_local()).to_rfc3339());
         }
     }
 
@@ -566,6 +572,14 @@ fn calculate_confidence_and_path(
             _ => None,
         }
     });
+    // A location labelled EVERYDAY is home ground: its photos are routine unless
+    // they sit in a named event folder.
+    let everyday = location_name
+        .as_deref()
+        .and_then(|name| locations.get(name))
+        .and_then(|rule| rule.label.as_deref())
+        .map(|label| label.eq_ignore_ascii_case("EVERYDAY"))
+        .unwrap_or(false);
 
     let confidence = if gps_file.is_some() && folder_event.is_some() {
         Confidence::High
@@ -581,6 +595,7 @@ fn calculate_confidence_and_path(
         date_start,
         location_name.as_deref(),
         folder_event.as_deref(),
+        everyday,
     );
 
     (confidence, path)
@@ -618,6 +633,7 @@ fn build_suggested_path(
     date_start: Option<&str>,
     location_name: Option<&str>,
     event_name: Option<&str>,
+    everyday: bool,
 ) -> String {
     let date = date_start
         .and_then(|s| parse_datetime(s))
@@ -625,12 +641,21 @@ fn build_suggested_path(
 
     let yyyy = date.format("%Y").to_string();
     let yyyy_mm_dd = date.format("%Y-%m-%d").to_string();
+    let yyyy_mm = date.format("%Y-%m").to_string();
 
     // Clean event name: strip any leading date to prevent "2026-03-15-2026-03-15_Wedding"
     let clean_event = event_name.map(|e| strip_date_prefix(e));
 
     // Priority: event name > GPS location > bare date
     match (clean_event, location_name) {
+        (Some(event), Some(_)) if everyday => {
+            // A named outing on home ground: the event name is enough
+            format!("ARCHIVE/{}/{}_{}", yyyy, yyyy_mm_dd, event)
+        }
+        (None, Some(_)) if everyday => {
+            // Routine photos on home ground, filed by month
+            format!("ARCHIVE/{}/EVERYDAY/{}", yyyy, yyyy_mm)
+        }
         (Some(event), Some(loc)) => {
             // Both event folder + GPS location
             format!("ARCHIVE/{}/{}_{}-{}", yyyy, yyyy_mm_dd, loc, event)
@@ -712,7 +737,7 @@ pub async fn scan_inbox(
         .await.map_err(|e| format!("Scan task failed: {e}"))?
 }
 
-fn scan_inbox_sync(inbox_path: &str, gap_hours: i64) -> Result<ScanResult, String> {
+pub(crate) fn scan_inbox_sync(inbox_path: &str, gap_hours: i64) -> Result<ScanResult, String> {
     if !(1..=24).contains(&gap_hours) {
         return Err("Session gap must be between 1 and 24 hours".into());
     }
@@ -897,6 +922,23 @@ mod contract_tests {
         assert!(scan_inbox_sync("/missing-memorial-test-inbox", 2).is_err());
         assert!(scan_inbox_sync(".", 0).is_err());
         assert!(scan_inbox_sync(".", 25).is_err());
+    }
+
+    #[test]
+    fn suggested_paths_follow_the_naming_rules() {
+        let date = Some("2024-06-14T09:00:00+00:00");
+        assert_eq!(build_suggested_path(date, Some("Giresun"), None, true), "ARCHIVE/2024/EVERYDAY/2024-06");
+        assert_eq!(
+            build_suggested_path(date, Some("Giresun"), Some("2024-06-14_Kumbet-Yaylasi"), true),
+            "ARCHIVE/2024/2024-06-14_Kumbet-Yaylasi"
+        );
+        assert_eq!(
+            build_suggested_path(date, Some("Istanbul"), Some("Yemek-Festivali"), false),
+            "ARCHIVE/2024/2024-06-14_Istanbul-Yemek-Festivali"
+        );
+        assert_eq!(build_suggested_path(date, Some("Istanbul"), None, false), "ARCHIVE/2024/2024-06-14_Istanbul");
+        assert_eq!(build_suggested_path(date, None, Some("Dugun"), false), "ARCHIVE/2024/2024-06-14_Dugun");
+        assert_eq!(build_suggested_path(date, None, None, false), "ARCHIVE/2024/2024-06-14");
     }
 
     #[test]

@@ -30,7 +30,7 @@ const defaultSettings: AppSettings = {
   duplicates: {
     sha256_check: true,
     phash_check: true,
-    phash_threshold: 10,
+    phash_threshold: 4,
   },
   ui: {
     theme: "light",
@@ -52,6 +52,16 @@ export const useAppStore = create<AppStore>()(
     }),
     {
       name: "memorial-app-settings",
+      version: 1,
+      // Sürüm 0: benzerlik toleransının varsayılanı 10'du ve ilgisiz kareleri de
+      // kopya sayıyordu. O değerde kalmış ayarlar yeni varsayılana çekilir.
+      migrate: (persisted, version) => {
+        const state = persisted as { settings?: AppSettings };
+        if (version < 1 && state.settings?.duplicates?.phash_threshold === 10) {
+          state.settings.duplicates.phash_threshold = 4;
+        }
+        return state;
+      },
       // Only persist settings, not runtime state
       partialize: (state) => ({ settings: state.settings }),
     }
