@@ -46,6 +46,11 @@ fn compute_phash(path: &Path) -> Option<u64> {
             }
         }
     }
+    // A flat or nearly flat picture has no structure to compare: its hash is
+    // (almost) all zeros or all ones and would match every other flat picture.
+    if !(6..=58).contains(&hash.count_ones()) {
+        return None;
+    }
     Some(hash)
 }
 
@@ -215,10 +220,12 @@ pub async fn check_duplicates(
 mod tests {
     use super::*;
 
+    /// A picture with structure in both directions; `shift` nudges it slightly.
     fn gradient(path: &Path, shift: u8) {
-        image::RgbImage::from_fn(240, 160, |x, _| {
-            let v = (x as u8).wrapping_add(shift);
-            image::Rgb([v, v, v])
+        image::RgbImage::from_fn(240, 160, |x, y| {
+            let wave = ((x as f32 / 19.0).sin() + (y as f32 / 13.0).cos()) * 60.0;
+            let v = (128.0 + wave) as u8;
+            image::Rgb([v.saturating_add(shift), v, v])
         })
         .save(path)
         .unwrap();
@@ -257,6 +264,14 @@ mod tests {
     }
 
     #[test]
+    fn flat_images_are_not_compared_perceptually() {
+        let dir = tempfile::tempdir().unwrap();
+        image::RgbImage::from_pixel(120, 80, image::Rgb([200, 200, 200])).save(dir.path().join("grey.png")).unwrap();
+        image::RgbImage::from_pixel(90, 90, image::Rgb([10, 10, 10])).save(dir.path().join("black.png")).unwrap();
+        assert!(find_duplicates(&[dir.path().to_string_lossy().to_string()], 10, true, true).is_empty());
+    }
+
+    #[test]
     fn missing_paths_are_ignored() {
         assert!(find_duplicates(&["/missing-memorial-duplicates".to_string()], 10, true, true).is_empty());
     }
@@ -270,6 +285,11 @@ mod tests {
         let files = collect_files(&[dir]);
         for (name, hash) in [("aHash", compute_ahash as fn(&Path) -> Option<u64>), ("dHash", compute_phash)] {
             let hashes: Vec<(String, u64)> = files.iter().filter_map(|f| hash(Path::new(f)).map(|h| (f.clone(), h))).collect();
+            if hashes.len() <= 4 {
+                for (f, h) in &hashes {
+                    println!("  {name} {:064b} {}", h, Path::new(f).file_name().unwrap().to_string_lossy());
+                }
+            }
             let mut distances = Vec::new();
             for i in 0..hashes.len() {
                 for j in (i + 1)..hashes.len() {
