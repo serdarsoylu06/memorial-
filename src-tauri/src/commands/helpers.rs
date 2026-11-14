@@ -88,7 +88,7 @@ fn build_folder_node(dir: &Path) -> ArchiveFolder {
 static PHOTO_EXTS: &[&str] = &["jpg", "jpeg", "heic", "png", "cr2", "arw", "nef", "dng", "tiff", "tif"];
 static VIDEO_EXTS: &[&str] = &["mp4", "mov", "avi", "mts", "m2ts", "mkv", "m4v"];
 
-fn is_media(ext: &str) -> bool {
+pub(crate) fn is_media(ext: &str) -> bool {
     let ext = ext.to_lowercase();
     PHOTO_EXTS.iter().any(|e| *e == ext.as_str()) || VIDEO_EXTS.iter().any(|e| *e == ext.as_str())
 }

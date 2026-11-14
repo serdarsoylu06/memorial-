@@ -210,6 +210,11 @@ export function installDemo() {
           return tree;
         case "check_duplicates":
           return duplicates;
+        case "get_thumbnails": {
+          // Örnek modda RAW dışındaki karelere renkli bir yer tutucu verilir.
+          const paths = (args.paths as string[]) ?? [];
+          return paths.map((path, i) => (/\.(arw|cr2)$/i.test(path) ? null : swatch(path.length + i)));
+        }
         case "delete_file":
           return null;
         case "init_folder_structure":

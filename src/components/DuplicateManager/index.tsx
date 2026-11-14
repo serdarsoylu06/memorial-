@@ -5,6 +5,7 @@ import { useHDDStatus } from "../../hooks/useHDDStatus";
 import Button from "../ui/Button";
 import ProgressBar from "../ui/ProgressBar";
 import { Notice, PageHeader } from "../ui/Page";
+import { useThumbnails } from "../../hooks/useThumbnails";
 import type { DuplicatePair } from "../../types";
 
 function splitPath(path: string): { name: string; dir: string } {
@@ -12,13 +13,17 @@ function splitPath(path: string): { name: string; dir: string } {
   return idx >= 0 ? { name: path.slice(idx + 1), dir: path.slice(0, idx) } : { name: path, dir: "" };
 }
 
-function FileSide({ role, path }: { role: string; path: string }) {
+function FileSide({ role, path, thumbnail }: { role: string; path: string; thumbnail?: string | null }) {
   const { name, dir } = splitPath(path);
   const ext = name.includes(".") ? name.split(".").pop()!.toUpperCase() : "";
   return (
     <div className="flex gap-3 min-w-0">
-      <div className="w-[72px] shrink-0 aspect-[3/2] rounded-[2px] bg-well border border-edge flex items-center justify-center">
-        <span className="condensed text-[11px] text-faint">{ext}</span>
+      <div className="w-[120px] shrink-0 aspect-[3/2] rounded-[2px] bg-well border border-edge overflow-hidden flex items-center justify-center">
+        {thumbnail ? (
+          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span className="condensed text-[11px] text-faint">{ext}</span>
+        )}
       </div>
       <div className="min-w-0">
         <p className="text-xs text-dim m-0">{role}</p>
@@ -43,6 +48,7 @@ function PairRow({
   onKeepBoth: () => void;
 }) {
   const pct = Math.round(pair.similarity * 100);
+  const thumbs = useThumbnails([pair.original, pair.duplicate]);
   return (
     <li className="py-5 border-b border-edge">
       <p className="m-0 mb-3 text-[13px]">
@@ -50,8 +56,8 @@ function PairRow({
         <span className="text-dim">, %{pct} eşleşme</span>
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-        <FileSide role="Asıl dosya" path={pair.original} />
-        <FileSide role="Kopya" path={pair.duplicate} />
+        <FileSide role="Asıl dosya" path={pair.original} thumbnail={thumbs[pair.original]} />
+        <FileSide role="Kopya" path={pair.duplicate} thumbnail={thumbs[pair.duplicate]} />
       </div>
       <div className="flex gap-2 mt-4">
         <Button variant="danger" onClick={onDelete}>
@@ -85,6 +91,8 @@ export default function DuplicateManager() {
       const result = await invoke<DuplicatePair[]>("check_duplicates", {
         filePaths: [archivePath],
         phashThreshold: settings.duplicates.phash_threshold,
+        sha256Check: settings.duplicates.sha256_check,
+        phashCheck: settings.duplicates.phash_check,
       });
       setPairs(result);
       setScanned(true);

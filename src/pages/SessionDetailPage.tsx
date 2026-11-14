@@ -11,6 +11,7 @@ import { Notice, Segmented, inputClass } from "../components/ui/Page";
 import type { Session, FileOpResult } from "../types";
 import { destinationDir, deviceLabel, deviceList } from "../utils/device";
 import { formatDateRange, formatFileCounts } from "../utils/formatters";
+import { useThumbnails } from "../hooks/useThumbnails";
 
 const n = (value: number) => value.toLocaleString("tr-TR");
 const PAGE_SIZE = 40;
@@ -20,12 +21,13 @@ function ContactSheet({ session }: { session: Session }) {
   const totalPages = Math.ceil(session.files.length / PAGE_SIZE);
   const offset = page * PAGE_SIZE;
   const paged = session.files.slice(offset, offset + PAGE_SIZE);
+  const thumbs = useThumbnails(paged.map((f) => f.path));
 
   return (
     <div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-2 gap-y-3">
         {paged.map((file, i) => (
-          <Frame key={file.path} file={file} number={offset + i + 1} />
+          <Frame key={file.path} file={file} number={offset + i + 1} thumbnail={thumbs[file.path]} />
         ))}
       </div>
       {totalPages > 1 && (
@@ -59,7 +61,7 @@ export default function SessionDetailPage() {
   const navigate = useNavigate();
   const { scanResult } = useInboxStore();
   const { settings } = useAppStore();
-  const [mode, setMode] = useState<"copy" | "move">("copy");
+  const [mode, setMode] = useState<"copy" | "move">(settings.operations.default_mode);
   const [result, setResult] = useState<FileOpResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);

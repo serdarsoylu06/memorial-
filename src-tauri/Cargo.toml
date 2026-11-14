@@ -3,7 +3,7 @@ name = "memorial"
 version = "0.1.0"
 description = "Memorial — Local media archive organizer"
 authors = []
-license = ""
+license = "MIT"
 repository = "https://github.com/serdarsoylu06/memorial-"
 default-run = "memorial"
 edition = "2021"
@@ -19,8 +19,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -36,6 +34,7 @@ kamadak-exif = "0.5"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

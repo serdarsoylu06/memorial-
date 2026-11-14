@@ -1,12 +1,11 @@
 {
   "identifier": "main-capability",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
-    "dialog:default",
-    "fs:read-all",
-    "fs:write-all",
-    "shell:default"
+    "dialog:default"
   ]
 }

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { MediaFile } from "../../types";
+import { useThumbnails } from "../../hooks/useThumbnails";
 
 function extension(filename: string): string {
   const dot = filename.lastIndexOf(".");
@@ -14,18 +15,22 @@ export function Frame({
   file,
   number,
   width,
+  thumbnail,
   className = "",
 }: {
   file: MediaFile;
   number: number;
   width?: number;
+  /** Arka uçtan gelen küçük resim; yoksa dosyanın kendi `thumbnail` alanına bakılır. */
+  thumbnail?: string | null;
   className?: string;
 }) {
+  const src = thumbnail ?? file.thumbnail;
   return (
     <figure className={`m-0 ${className}`} style={width ? { width } : undefined} title={file.filename}>
       <div className="relative aspect-[3/2] rounded-[2px] bg-well border border-edge overflow-hidden flex items-center justify-center">
-        {file.thumbnail ? (
-          <img src={file.thumbnail} alt="" className="w-full h-full object-cover" />
+        {src ? (
+          <img src={src} alt="" className="w-full h-full object-cover" />
         ) : (
           <span className="condensed text-[11px] text-faint">{extension(file.filename)}</span>
         )}
@@ -76,12 +81,20 @@ export default function ContactStrip({
 
   const shown = files.slice(0, fit);
   const rest = files.length - shown.length;
+  const thumbs = useThumbnails(shown.map((f) => f.path));
 
   return (
     <div ref={ref} className={className}>
       <div className="relative inline-flex items-start" style={{ gap: GAP }}>
         {shown.map((file, i) => (
-          <Frame key={file.path} file={file} number={i + 1} width={FRAME_WIDTH} className="shrink-0" />
+          <Frame
+            key={file.path}
+            file={file}
+            number={i + 1}
+            width={FRAME_WIDTH}
+            thumbnail={thumbs[file.path]}
+            className="shrink-0"
+          />
         ))}
         {rest > 0 && (
           <span className="condensed text-[13px] text-dim self-start mt-3 pl-1">
