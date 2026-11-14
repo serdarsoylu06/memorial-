@@ -83,52 +83,45 @@ ROOT/  (exFAT HDD)
 
 ---
 
-## 🖥️ 7 Ekran / 7 UI Screens
+## 🖥️ Ekranlar / Screens
 
-### 1. Dashboard
-- HDD bağlantı durumu göstergesi
-- INBOX dosya sayısı rozeti
-- REVIEW bekleyen sayısı rozeti
-- Hızlı istatistikler: toplam arşiv boyutu, fotoğraf/video sayısı
-- Son oturumlar listesi
+### 1. Genel bakış
+- En üstte tek cümlelik durum: kaç dosyanın dosyalanmayı beklediği
+- Arşiv özeti: fotoğraf ve video sayısı, klasör sayısı, kapladığı yer
+- Son taramada bulunan oturumlar, küçük resim şeritleriyle
 
-### 2. INBOX Analizörü
-- INBOX açılışında otomatik tarama
-- Tespit edilen oturumlar kart görünümünde
-- Her kart: thumbnail grid (ilk 4 fotoğraf), tarih aralığı, cihazlar, güven skoru, önerilen hedef yol
-- Eylemler: onayla / hedef düzenle / reddet / REVIEW'a gönder
-- Yüksek güvenli öğeleri toplu onayla butonu
+### 2. Gelen
+- Disk bağlıysa açılışta INBOX kendiliğinden taranır
+- Yıl şeridi: oturumların yıl içindeki yeri
+- Her oturum için zaman şeridi: her çizgi bir dosyanın çekildiği an
+- Önerilen hedef klasör satır içinde düzenlenir
+- Onayla (ayara göre kopyalar ya da taşır), oturumu aç, reddet
+- Yüksek güvenli oturumları toplu onaylama
 
-### 3. Oturum Detay Görünümü
-- Thumbnail'lı tam dosya listesi
-- GPS varsa harita önizlemesi
-- Cihaz dağılım grafiği
-- Önerilen klasör adını satır içi düzenle
-- Taşı vs Kopyala geçiş
+### 3. Oturum
+- Bütün karelerin küçük resimleri, sayfalı
+- Cihaz dağılımı, konum bilgisi olan dosyalar
+- Hedef klasörü düzenleme, kopyala ya da taşı seçimi
 
-### 4. İnceleme Kuyruğu (REVIEW)
-- Tüm belirsiz dosyalar listelendi
-- Filtrele: EXIF yok, bilinmeyen cihaz, tarih çakışması, kopya şüphesi
-- Toplu eylemler
+### 4. İnceleme
+- Bir oturuma yerleştirilemeyen dosyalar
+- Filtreler: tarihi olmayanlar, cihazı bilinmeyenler, kendi içinde kopyalar
+- Seçili dosyaları elle bir klasöre taşıma ya da silme
 
-### 5. Arşiv Tarayıcısı
-- ARCHIVE/ yapısının ağaç görünümü
-- Klasöre tıkla → thumbnail'ları gör
-- Tarih aralığı, cihaz, etkinlik adına göre arama
-- Düzenleme bağlantısı olan klasörlerde EDITS bağlantısı göstergesi
+### 5. Arşiv
+- ARCHIVE/ yapısının ağaç görünümü ve klasör adında arama
+- Seçilen klasörün dosya sayısı ve alt klasörleri
 
-### 6. Kopya Yöneticisi
-- Yan yana karşılaştırma
-- Dosya boyutu, kaynak, tarih gösterimi
-- Tek tıkla tut/sil
+### 6. Kopyalar
+- Arşivde birebir aynı dosyalar (SHA-256) ve benzer görüntüler
+- Çiftler küçük resimleriyle yan yana; kopyayı sil ya da ikisini de tut
 
 ### 7. Ayarlar
-- HDD kök yol seçici
-- Cihaz kuralları editörü (YAML görsel editörü)
-- EVERYDAY konum bbox editörü
-- Zaman korelasyon penceresi ayarı (varsayılan: 30 dk)
-- Adaptif bölünme eşikleri
-- Log görüntüleyici
+- Arşiv diski ve klasör adları, klasör yapısını oluşturma
+- Varsayılan işlem (kopyala / taşı), ön kontrol, oturum aralığı
+- Kopya tespiti seçenekleri, tema (ışık masası / karanlık oda)
+
+Sürücü şeridi her ekranın üstünde durur: disk adı, doluluk ve bekleyen dosya sayısı.
 
 ---
 
@@ -173,15 +166,24 @@ Katman 5 → Cihaz davranış örüntüsü (iPhone GPS taşır, Sony taşımaz �
 | Animations | Framer Motion |
 | Backend | Rust |
 | EXIF | kamadak-exif |
-| Hashing | sha2, image (pHash) |
+| Hashing | sha2, image (aHash) |
 | Archive | zip crate |
 | Config | serde_yaml |
 | Time | chrono |
 | File walking | walkdir |
+| Thumbnails | EXIF önizlemesi, image, macOS Quick Look |
 
 ---
 
-## 🚀 Kurulum / Setup
+## ⬇️ İndirme / Download
+
+Hazır sürümler [Releases](https://github.com/serdarsoylu06/memorial-/releases) sayfasındadır. macOS için `.dmg` dosyası Apple Silicon (M serisi) içindir.
+
+Uygulama henüz Apple tarafından imzalanmadı. İlk açılışta macOS uyarı verir; açmak için **Sistem Ayarları › Gizlilik ve Güvenlik** bölümünün altındaki **Yine de Aç** düğmesini kullanın.
+
+---
+
+## 🚀 Geliştirme Kurulumu / Development Setup
 
 ### Gereksinimler / Prerequisites
 
