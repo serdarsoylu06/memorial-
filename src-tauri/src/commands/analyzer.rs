@@ -244,10 +244,16 @@ fn is_noise_folder(name: &str) -> bool {
     if known_noise.iter().any(|k| n == *k) {
         return true;
     }
-    // Camera roll folders: 3+ digits followed by letters (100CANON, 101MSDCF, 100ANDRO, etc.)
-    if n.len() >= 4 {
-        let digits: usize = n.chars().take_while(|c| c.is_ascii_digit()).count();
-        if digits >= 3 && digits < n.len() {
+    // Camera roll folders follow the DCF convention: exactly three digits, then
+    // five letters, digits or underscores (100CANON, 101MSDCF, 100ANDRO, 100_FUJI).
+    // A dated event folder such as "2024-06-14_Kumbet-Yaylasi" also starts with
+    // digits and must not be mistaken for one.
+    if n.len() == 8 {
+        let (number, maker) = n.split_at(3);
+        if number.chars().all(|c| c.is_ascii_digit())
+            && maker.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && maker.chars().any(|c| c.is_ascii_alphabetic())
+        {
             return true;
         }
     }
@@ -891,5 +897,53 @@ mod contract_tests {
         assert!(scan_inbox_sync("/missing-memorial-test-inbox", 2).is_err());
         assert!(scan_inbox_sync(".", 0).is_err());
         assert!(scan_inbox_sync(".", 25).is_err());
+    }
+
+    #[test]
+    fn camera_roll_folders_are_noise_but_dated_event_folders_are_not() {
+        for noise in ["DCIM", "100CANON", "101MSDCF", "100ANDRO", "100_FUJI", "102apple", "2024", "INBOX"] {
+            assert!(is_noise_folder(noise), "{noise} should be ignored");
+        }
+        for event in ["2024-06-14_Kumbet-Yaylasi", "2024-08_Istanbul", "Dugun", "2019 Yaz Tatili"] {
+            assert!(!is_noise_folder(event), "{event} is an event name");
+        }
+    }
+
+    /// Scan a folder laid out like a real INBOX, then file one session the way the
+    /// app does: <root>/<suggested path>/<Photos|Videos>/<Device>/<name>.
+    #[test]
+    fn scanned_session_can_be_copied_into_the_archive_layout() {
+        use crate::commands::safe_fs::transfer;
+
+        let disk = tempfile::tempdir().unwrap();
+        // Transfers refuse symlinked paths, and macOS temp dirs live behind /var -> /private/var.
+        let root = disk.path().canonicalize().unwrap();
+        let inbox = root.join("INBOX");
+        let event = inbox.join("2024-06-14_Kumbet-Yaylasi");
+        std::fs::create_dir_all(&event).unwrap();
+        for name in ["DSC00001.jpg", "DSC00002.jpg", "IMG_0003.png"] {
+            image::RgbImage::from_pixel(64, 48, image::Rgb([90, 120, 150])).save(event.join(name)).unwrap();
+        }
+        std::fs::write(event.join("DSC00001.xmp"), b"sidecar").unwrap();
+        std::fs::write(event.join("notes.txt"), b"not media").unwrap();
+
+        let scan = scan_inbox_sync(inbox.to_str().unwrap(), 2).unwrap();
+        assert_eq!(scan.total_files, 3);
+        let session = scan.sessions.iter().find(|s| s.files.len() == 3).expect("one session with all three files");
+        assert!(session.suggested_path.contains("Kumbet-Yaylasi"), "path was {}", session.suggested_path);
+        let with_sidecar = session.files.iter().find(|f| f.filename == "DSC00001.jpg").unwrap();
+        assert_eq!(with_sidecar.sidecars.len(), 1);
+
+        for file in &session.files {
+            let media = if file.kind == "video" { "Videos" } else { "Photos" };
+            let dst = root.join(&session.suggested_path).join(media).join(&file.device).join(&file.filename);
+            transfer(Path::new(&file.path), &dst, false, true).unwrap();
+            assert!(!dst.exists(), "a dry run must not write");
+            transfer(Path::new(&file.path), &dst, false, false).unwrap();
+            assert_eq!(std::fs::read(&dst).unwrap(), std::fs::read(&file.path).unwrap());
+            // Copying again must refuse rather than overwrite.
+            assert!(transfer(Path::new(&file.path), &dst, false, false).is_err());
+        }
+        assert!(event.join("DSC00001.jpg").exists(), "copy leaves the source in place");
     }
 }

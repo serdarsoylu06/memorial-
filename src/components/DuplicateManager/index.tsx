@@ -1,74 +1,73 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ScanLine, Trash2, CheckCheck, Camera, Film } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { useHDDStatus } from "../../hooks/useHDDStatus";
-import Card from "../ui/Card";
 import Button from "../ui/Button";
-import Badge from "../ui/Badge";
-import Spinner from "../ui/Spinner";
 import ProgressBar from "../ui/ProgressBar";
+import { Notice, PageHeader } from "../ui/Page";
+import { useThumbnails } from "../../hooks/useThumbnails";
 import type { DuplicatePair } from "../../types";
 
+function splitPath(path: string): { name: string; dir: string } {
+  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return idx >= 0 ? { name: path.slice(idx + 1), dir: path.slice(0, idx) } : { name: path, dir: "" };
+}
 
-function PairCard({
+function FileSide({ role, path, thumbnail }: { role: string; path: string; thumbnail?: string | null }) {
+  const { name, dir } = splitPath(path);
+  const ext = name.includes(".") ? name.split(".").pop()!.toUpperCase() : "";
+  return (
+    <div className="flex gap-3 min-w-0">
+      <div className="w-[120px] shrink-0 aspect-[3/2] rounded-[2px] bg-well border border-edge overflow-hidden flex items-center justify-center">
+        {thumbnail ? (
+          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span className="condensed text-[11px] text-faint">{ext}</span>
+        )}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-dim m-0">{role}</p>
+        <p className="font-mono text-[13px] truncate m-0" title={name}>
+          {name}
+        </p>
+        <p className="font-mono text-xs text-dim truncate m-0" title={dir}>
+          {dir}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PairRow({
   pair,
   onDelete,
+  onKeepBoth,
 }: {
   pair: DuplicatePair;
-  onDelete: (path: string) => void;
+  onDelete: () => void;
+  onKeepBoth: () => void;
 }) {
   const pct = Math.round(pair.similarity * 100);
-
-  function FileInfo({ path }: { path: string }) {
-    const name = path.split("/").pop() ?? path;
-    const ext = name.split(".").pop()?.toLowerCase() ?? "";
-    const isImg = ["jpg", "jpeg", "png", "heic"].includes(ext);
-    return (
-      <div className="flex flex-col items-center gap-2 text-center">
-        <div className="w-full aspect-square rounded-lg bg-[#1a1d2e] border border-[#252840] flex items-center justify-center max-w-[80px]">
-          {isImg ? <Camera size={24} className="text-[#363b60]" /> : <Film size={24} className="text-[#363b60]" />}
-        </div>
-        <p className="text-xs text-[#8890b4] truncate max-w-[120px]">{name}</p>
-      </div>
-    );
-  }
-
+  const thumbs = useThumbnails([pair.original, pair.duplicate]);
   return (
-    <Card>
-      <div className="flex items-center gap-2 mb-3">
-        <Badge tone={pair.match_type === "exact" ? "danger" : "warning"} dot>
-          {pair.match_type === "exact" ? "Tam Kopya" : "Benzer"}
-        </Badge>
-        <span className="text-xs text-[#565e80]">{pct}% eşleşme</span>
-        <div className="flex-1">
-          <ProgressBar value={pct} color={pair.match_type === "exact" ? "#e05252" : "#f0b23a"} />
-        </div>
+    <li className="py-5 border-b border-edge">
+      <p className="m-0 mb-3 text-[13px]">
+        <span className="font-medium">{pair.match_type === "exact" ? "Birebir aynı dosya" : "Benzer görüntü"}</span>
+        <span className="text-dim">, %{pct} eşleşme</span>
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+        <FileSide role="Asıl dosya" path={pair.original} thumbnail={thumbs[pair.original]} />
+        <FileSide role="Kopya" path={pair.duplicate} thumbnail={thumbs[pair.duplicate]} />
       </div>
-      <div className="flex gap-4">
-        <div className="flex-1">
-          <p className="text-xs text-[#565e80] mb-1.5">Orijinal</p>
-          <FileInfo path={pair.original} />
-        </div>
-        <div className="w-px bg-[#252840]" />
-        <div className="flex-1">
-          <p className="text-xs text-[#565e80] mb-1.5">Kopya</p>
-          <FileInfo path={pair.duplicate} />
-        </div>
-      </div>
-      <div className="flex gap-2 mt-3">
-        <Button variant="ghost" size="sm" className="flex-1">Orijinali Tut</Button>
-        <Button
-          variant="danger"
-          size="sm"
-          className="flex-1"
-          icon={<Trash2 size={12} />}
-          onClick={() => onDelete(pair.duplicate)}
-        >
-          Kopyayı Sil
+      <div className="flex gap-2 mt-4">
+        <Button variant="danger" onClick={onDelete}>
+          Kopyayı sil
+        </Button>
+        <Button variant="quiet" onClick={onKeepBoth}>
+          İkisini de tut
         </Button>
       </div>
-    </Card>
+    </li>
   );
 }
 
@@ -77,26 +76,30 @@ export default function DuplicateManager() {
   const hdd = useHDDStatus();
   const [pairs, setPairs] = useState<DuplicatePair[]>([]);
   const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const startScan = async () => {
     if (!settings.hdd_root) return;
     setLoading(true);
+    setError(null);
     setProgress(10);
     const pt = setInterval(() => setProgress((p) => Math.min(p + 5, 85)), 400);
     try {
-      // Scan ARCHIVE + INBOX for duplicates
       const archivePath = `${settings.hdd_root}/${settings.archive_dir}`;
       const result = await invoke<DuplicatePair[]>("check_duplicates", {
         filePaths: [archivePath],
         phashThreshold: settings.duplicates.phash_threshold,
+        sha256Check: settings.duplicates.sha256_check,
+        phashCheck: settings.duplicates.phash_check,
       });
       setPairs(result);
+      setScanned(true);
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       clearInterval(pt);
-      setProgress(100);
       setLoading(false);
     }
   };
@@ -106,53 +109,57 @@ export default function DuplicateManager() {
       await invoke("delete_file", { path });
       setPairs((prev) => prev.filter((p) => p.duplicate !== path));
     } catch (err) {
-      console.error(err);
+      setError(`Dosya silinemedi: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
+  let status: string;
+  if (loading) status = "Arşiv taranıyor";
+  else if (!scanned) status = "Arşiv henüz kopyalar için taranmadı.";
+  else if (pairs.length === 0) status = "Arşivde kopya bulunamadı.";
+  else status = `${pairs.length.toLocaleString("tr-TR")} kopya çifti bulundu.`;
+
   return (
-    <div className="space-y-5 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-[#e8eaf6]">Kopya Yöneticisi</h1>
-          <p className="text-sm text-[#565e80] mt-0.5">
-            {pairs.length > 0 ? `${pairs.length} kopya çifti tespit edildi` : "ARCHIVE taranmadı"}
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={loading ? <Spinner size={14} /> : <ScanLine size={14} />}
-          onClick={() => void startScan()}
-          disabled={!hdd.connected || loading}
-          loading={loading}
-        >
-          {loading ? "Taranıyor…" : "Kopyaları Tara"}
+    <div className="space-y-6">
+      <PageHeader title="Kopyalar" status={status}>
+        <Button variant="primary" onClick={() => void startScan()} disabled={!hdd.connected} loading={loading}>
+          {loading ? "Taranıyor" : scanned ? "Yeniden tara" : "Kopyaları tara"}
         </Button>
-      </div>
+      </PageHeader>
 
-      {(loading || progress > 0) && (
-        <ProgressBar value={progress} color={loading ? "#6c8cff" : "#3dd68c"} />
+      {loading && <ProgressBar value={progress} label="Kopya taraması ilerlemesi" />}
+
+      {error && (
+        <Notice tone="stop" title="İşlem tamamlanamadı">
+          <span className="break-all">{error}</span>
+        </Notice>
       )}
 
-      {!loading && pairs.length === 0 && progress === 100 && (
-        <Card className="text-center py-12">
-          <CheckCheck size={28} className="text-[#3dd68c] mx-auto mb-2" />
-          <p className="text-[#8890b4]">Kopya bulunamadı 🎉</p>
-        </Card>
+      {!hdd.connected && <Notice title="Disk bağlı değil">Kopyaları taramak için diski takın.</Notice>}
+
+      {hdd.connected && !loading && !scanned && !error && (
+        <Notice title="Tarama, arşivdeki her dosyayı karşılaştırır">
+          Birebir aynı dosyalar ve birbirine çok benzeyen görüntüler çiftler hâlinde listelenir. Büyük arşivlerde
+          uzun sürebilir.
+        </Notice>
       )}
 
-      {!hdd.connected && (
-        <Card className="text-center py-12 text-[#565e80]">
-          HDD bağlı değil.
-        </Card>
+      {pairs.length > 0 && (
+        <ul className="list-none m-0 p-0 border-t border-edge">
+          {pairs.map((pair) => (
+            <PairRow
+              key={`${pair.original}|${pair.duplicate}`}
+              pair={pair}
+              onDelete={() => void deleteDuplicate(pair.duplicate)}
+              onKeepBoth={() =>
+                setPairs((prev) =>
+                  prev.filter((p) => !(p.original === pair.original && p.duplicate === pair.duplicate))
+                )
+              }
+            />
+          ))}
+        </ul>
       )}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        {pairs.map((pair, i) => (
-          <PairCard key={i} pair={pair} onDelete={(p) => void deleteDuplicate(p)} />
-        ))}
-      </div>
     </div>
   );
 }

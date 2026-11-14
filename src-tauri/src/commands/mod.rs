@@ -4,6 +4,7 @@ pub mod duplicate;
 pub mod helpers;
 pub mod manifest;
 pub mod mover;
+pub mod thumbs;
 pub mod zip_handler;
 pub(crate) mod safe_fs;
 pub(crate) mod zip_safety;
