@@ -61,7 +61,7 @@ function PairRow({
       </div>
       <div className="flex gap-2 mt-4">
         <Button variant="danger" onClick={onDelete}>
-          Kopyayı sil
+          Kopyayı Çöp Kutusu'na at
         </Button>
         <Button variant="quiet" onClick={onKeepBoth}>
           İkisini de tut
@@ -106,10 +106,10 @@ export default function DuplicateManager() {
 
   const deleteDuplicate = async (path: string) => {
     try {
-      await invoke("delete_file", { path });
+      await invoke("trash_file", { path });
       setPairs((prev) => prev.filter((p) => p.duplicate !== path));
     } catch (err) {
-      setError(`Dosya silinemedi: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Dosya Çöp Kutusu'na atılamadı: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 

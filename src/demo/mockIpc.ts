@@ -215,7 +215,7 @@ export function installDemo() {
           const paths = (args.paths as string[]) ?? [];
           return paths.map((path, i) => (/\.(arw|cr2)$/i.test(path) ? null : swatch(path.length + i)));
         }
-        case "delete_file":
+        case "trash_file":
           return null;
         case "init_folder_structure":
           return [];

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
@@ -40,6 +40,9 @@ export default function ReviewQueue() {
   const [target, setTarget] = useState("");
   const [moving, setMoving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmingTrash, setConfirmingTrash] = useState(false);
+  // Shift ile aralık seçmek için son tıklanan dosya.
+  const lastClicked = useRef<string | null>(null);
   // Kopya taraması pahalıdır; yalnızca o filtre ilk seçildiğinde yapılır.
   const [duplicates, setDuplicates] = useState<Set<string> | null>(null);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
@@ -79,13 +82,35 @@ export default function ReviewQueue() {
   const visible = filtered.slice(0, shown);
   const thumbs = useThumbnails(visible.map((f) => f.path));
 
-  const toggleSelect = (path: string) =>
+  const toggleSelect = (path: string, range: boolean) => {
+    setConfirmingTrash(false);
+    const anchor = lastClicked.current;
+    lastClicked.current = path;
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
+      const from = range && anchor ? visible.findIndex((f) => f.path === anchor) : -1;
+      const to = visible.findIndex((f) => f.path === path);
+      if (from >= 0 && to >= 0) {
+        // Shift ile tıklama: son tıklanan dosyadan buraya kadar hepsini seçer.
+        for (const f of visible.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(f.path);
+      } else if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
+  };
+
+  const allSelected = filtered.length > 0 && filtered.every((f) => selected.has(f.path));
+  const toggleAll = () => {
+    setConfirmingTrash(false);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const f of filtered) {
+        if (allSelected) next.delete(f.path);
+        else next.add(f.path);
+      }
+      return next;
+    });
+  };
 
   const forget = (paths: Set<string>) => {
     setFiles((f) => f.filter((x) => !paths.has(x.path)));
@@ -93,22 +118,26 @@ export default function ReviewQueue() {
     setDuplicates(null);
   };
 
-  const deleteSelected = async () => {
+  const trashSelected = async () => {
+    setConfirmingTrash(false);
     const removed = new Set<string>();
     for (const path of selected) {
       try {
-        await invoke("delete_file", { path });
+        await invoke("trash_file", { path });
         removed.add(path);
       } catch {
-        /* silinemeyen dosya listede kalır */
+        /* Çöp Kutusu'na atılamayan dosya listede kalır */
       }
     }
     const left = selected.size - removed.size;
     forget(removed);
     setMessage(
       left > 0
-        ? { ok: false, text: `${n(removed.size)} dosya silindi, ${n(left)} dosya silinemedi.` }
-        : { ok: true, text: `${n(removed.size)} dosya silindi.` }
+        ? {
+            ok: false,
+            text: `${n(removed.size)} dosya Çöp Kutusu'na atıldı, ${n(left)} dosya atılamadı ve yerinde duruyor.`,
+          }
+        : { ok: true, text: `${n(removed.size)} dosya Çöp Kutusu'na atıldı. Oradan geri alabilirsiniz.` }
     );
   };
 
@@ -174,7 +203,7 @@ export default function ReviewQueue() {
             setShown(PAGE_SIZE);
           }}
           options={[
-            { value: "all", label: "Tümü" },
+            { value: "all", label: "Bütün dosyalar" },
             { value: "no_exif", label: "Tarihi olmayanlar" },
             { value: "unknown_device", label: "Cihazı bilinmeyenler" },
             { value: "duplicate", label: "Kendi içinde kopyalar" },
@@ -206,16 +235,36 @@ export default function ReviewQueue() {
             <Button variant="primary" loading={moving} onClick={() => void moveSelected()}>
               Seçili {n(selected.size)} dosyayı taşı
             </Button>
-            <Button variant="danger" disabled={moving} onClick={() => void deleteSelected()}>
-              Seçili {n(selected.size)} dosyayı sil
-            </Button>
-            <Button variant="quiet" disabled={moving} onClick={() => setSelected(new Set())}>
-              Seçimi kaldır
-            </Button>
+            {confirmingTrash ? (
+              <>
+                <Button variant="danger" disabled={moving} onClick={() => void trashSelected()}>
+                  Evet, {n(selected.size)} dosyayı Çöp Kutusu'na at
+                </Button>
+                <Button variant="quiet" onClick={() => setConfirmingTrash(false)}>
+                  Vazgeç
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="danger" disabled={moving} onClick={() => setConfirmingTrash(true)}>
+                  Seçili {n(selected.size)} dosyayı Çöp Kutusu'na at
+                </Button>
+                <Button
+                  variant="quiet"
+                  disabled={moving}
+                  onClick={() => {
+                    setSelected(new Set());
+                    setConfirmingTrash(false);
+                  }}
+                >
+                  Seçimi kaldır
+                </Button>
+              </>
+            )}
           </div>
           <p className="text-xs text-dim m-0">
-            Dosyalar klasörün içinde tür ve cihaza göre alt klasörlere yerleşir (örneğin Photos/iPhone). Silme geri
-            alınamaz.
+            Taşınan dosyalar klasörün içinde tür ve cihaza göre alt klasörlere yerleşir (örneğin Photos/iPhone).
+            Çöp Kutusu'na atılan dosya diskten silinmez; Çöp Kutusu'nu boşaltana kadar geri alabilirsiniz.
           </p>
         </div>
       )}
@@ -243,6 +292,29 @@ export default function ReviewQueue() {
         </Notice>
       )}
 
+      {filtered.length > 0 && (
+        <div className="flex items-center gap-4 flex-wrap">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={allSelected}
+            onClick={toggleAll}
+            className="flex items-center gap-3.5 text-[13px] font-medium bg-transparent border-0 p-0"
+          >
+            <span
+              aria-hidden
+              className={`w-4 h-4 rounded-[2px] shrink-0 flex items-center justify-center ${
+                allSelected ? "bg-mark text-on-mark" : "border border-edge-strong"
+              }`}
+            >
+              {allSelected && <Check size={12} strokeWidth={3} />}
+            </span>
+            {allSelected ? "Seçimi kaldır" : `Listedeki ${n(filtered.length)} dosyanın hepsini seç`}
+          </button>
+          <span className="text-xs text-dim">Bir aralığı seçmek için ilk dosyaya, sonra Shift ile son dosyaya tıklayın.</span>
+        </div>
+      )}
+
       {visible.length > 0 && (
         <ul className="list-none m-0 p-0 border-t border-edge">
           {visible.map((file) => {
@@ -254,7 +326,7 @@ export default function ReviewQueue() {
                   type="button"
                   role="checkbox"
                   aria-checked={isSelected}
-                  onClick={() => toggleSelect(file.path)}
+                  onClick={(e) => toggleSelect(file.path, e.shiftKey)}
                   className="text-left flex items-center gap-3.5 py-2.5 -mx-3 px-3 w-[calc(100%+1.5rem)] rounded-sm hover:bg-table/50 transition-colors"
                 >
                   <span

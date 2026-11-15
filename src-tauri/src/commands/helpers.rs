@@ -211,10 +211,29 @@ pub async fn open_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Delete a file from disk.
+/// Move a file to the system Trash. Nothing is ever removed permanently:
+/// if the volume has no Trash the call fails and the file stays where it is.
+pub(crate) fn trash_path(path: &Path) -> Result<(), String> {
+    if !path.is_file() {
+        return Err(format!("Not a file: {}", path.display()));
+    }
+    #[allow(unused_mut)]
+    let mut context = trash::TrashContext::default();
+    #[cfg(target_os = "macos")]
+    {
+        // NSFileManager needs no Finder automation permission.
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        context.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    context
+        .delete(path)
+        .map_err(|e| format!("Could not move to Trash: {e}"))
+}
+
+/// Move a file to the system Trash.
 #[tauri::command]
-pub async fn delete_file(path: String) -> Result<(), String> {
-    std::fs::remove_file(&path).map_err(|e| format!("Delete failed: {e}"))
+pub async fn trash_file(path: String) -> Result<(), String> {
+    trash_path(Path::new(&path))
 }
 
 /// Check if a path exists (for HDD polling).
@@ -293,5 +312,24 @@ pub async fn get_disk_usage(path: String) -> Result<DiskUsage, String> {
             free_bytes: 0,
             used_bytes: 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod trash_tests {
+    use super::*;
+
+    /// Leaves a file in the real Trash, so it only runs on request:
+    /// `cargo test --lib trash_keeps_the_file_recoverable -- --ignored`
+    #[test]
+    #[ignore]
+    fn trash_keeps_the_file_recoverable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("memorial-trash-test.jpg");
+        std::fs::write(&file, b"not really a photo").unwrap();
+        trash_path(&file).unwrap();
+        assert!(!file.exists());
+        assert!(trash_path(&file).is_err(), "a missing file must be an error, not a silent success");
+        assert!(trash_path(dir.path()).is_err(), "folders are never trashed");
     }
 }
