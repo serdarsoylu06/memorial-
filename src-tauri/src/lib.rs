@@ -5,7 +5,7 @@ use commands::{
     classifier::classify_file,
     duplicate::{check_duplicates, compute_sha256},
     helpers::{
-        get_archive_tree, get_review_files, open_in_finder, delete_file,
+        get_archive_tree, get_review_files, open_in_finder, trash_file,
         check_path_exists, get_disk_usage, get_media_folder_hints, get_folder_size,
         init_folder_structure,
     },
@@ -28,7 +28,7 @@ pub fn run() {
             get_archive_tree,
             get_review_files,
             open_in_finder,
-            delete_file,
+            trash_file,
             check_path_exists,
             get_disk_usage,
             get_media_folder_hints,
@@ -43,6 +43,22 @@ pub fn run() {
             get_thumbnails,
             extract_zip,
         ])
+        .setup(|_app| {
+            // İzleme dörtgeninde iki parmakla kaydırma, tarayıcıdaki gibi geri ve ileri gider.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                for window in _app.webview_windows().values() {
+                    window.with_webview(|webview| unsafe {
+                        let view = webview.inner() as *mut objc2::runtime::AnyObject;
+                        if let Some(view) = view.as_ref() {
+                            let _: () = objc2::msg_send![view, setAllowsBackForwardNavigationGestures: true];
+                        }
+                    })?;
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -182,7 +182,7 @@ function SessionRow({
         </p>
         <TimeRibbon files={session.files} marked={isApproved} className="mt-3.5" />
         {!isApproved && !isRejected && firstTarget && (
-          <p className="text-xs text-dim m-0 mt-3 truncate" title={firstTarget}>
+          <p className="text-xs text-dim m-0 mt-3 break-all">
             İlk dosyanın gideceği yer: <span className="font-mono">{firstTarget}</span>
           </p>
         )}
@@ -200,11 +200,11 @@ function SessionRow({
           <>
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => void approve()}>
-                Onayla ve {w.act}
+                Arşive {w.act}
               </Button>
-              <Button onClick={() => navigate(`/session/${session.id}`)}>Oturumu aç</Button>
+              <Button onClick={() => navigate(`/session/${session.id}`)}>Dosyaları gör</Button>
               <Button variant="quiet" onClick={() => rejectSession(session.id)}>
-                Reddet
+                Atla
               </Button>
             </div>
             {error && (
@@ -229,7 +229,7 @@ function SessionRow({
           </div>
         )}
 
-        {isRejected && <p className="m-0 text-[13px] text-dim">Reddedildi; dosyalar gelen klasöründe kaldı.</p>}
+        {isRejected && <p className="m-0 text-[13px] text-dim">Atlandı; dosyalar gelen klasöründe duruyor.</p>}
       </div>
     </li>
   );
@@ -238,13 +238,14 @@ function SessionRow({
 export default function InboxAnalyzer() {
   const hdd = useHDDStatus();
   const { scan, isScanning } = useInboxScan();
-  const { scanResult, scanError, approvedSessions, approveSession } = useInboxStore();
+  const { scanResult, scanError, approvedSessions, rejectedSessions, approveSession } = useInboxStore();
   const { settings, setSettings } = useAppStore();
   const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
   const [folderHints, setFolderHints] = useState<MediaFolderHint[]>([]);
   const [isOperating, setIsOperating] = useState(false);
   const [bulkFailures, setBulkFailures] = useState(0);
+  const [confirmingAll, setConfirmingAll] = useState(false);
   const [sendingToReview, setSendingToReview] = useState(false);
   const [reviewMoved, setReviewMoved] = useState(0);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -304,11 +305,14 @@ export default function InboxAnalyzer() {
   const handleOperationStart = useCallback(() => setIsOperating(true), []);
   const handleOperationEnd = useCallback(() => setIsOperating(false), []);
 
-  const bulkApprove = async () => {
+  const pendingAll = sessions.filter((s) => !approvedSessions.has(s.id) && !rejectedSessions.has(s.id));
+
+  const bulkApprove = async (list: Session[]) => {
+    setConfirmingAll(false);
     setIsOperating(true);
     setBulkFailures(0);
     let failures = 0;
-    for (const session of pendingHigh) {
+    for (const session of list) {
       try {
         await fileSession(settings, buildCopyPairs(settings, session.suggested_path, session));
         approveSession(session.id);
@@ -379,10 +383,25 @@ export default function InboxAnalyzer() {
     <div className="space-y-6">
       <PageHeader title="Gelen" status={status}>
         {pendingHigh.length > 0 && (
-          <Button variant="primary" onClick={() => void bulkApprove()} disabled={isOperating}>
-            Yüksek güvenli {n(pendingHigh.length)} oturumu onayla ve {w.act}
+          <Button variant="primary" onClick={() => void bulkApprove(pendingHigh)} disabled={isOperating}>
+            Yüksek güvenli {n(pendingHigh.length)} oturumu arşive {w.act}
           </Button>
         )}
+        {pendingAll.length > pendingHigh.length &&
+          (confirmingAll ? (
+            <>
+              <Button variant="primary" onClick={() => void bulkApprove(pendingAll)} disabled={isOperating}>
+                Evet, {n(pendingAll.length)} oturumu önerilen klasörlere {w.act}
+              </Button>
+              <Button variant="quiet" onClick={() => setConfirmingAll(false)}>
+                Vazgeç
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => setConfirmingAll(true)} disabled={isOperating}>
+              Bekleyen {n(pendingAll.length)} oturumun hepsini {w.act}
+            </Button>
+          ))}
         <Button onClick={() => void scan()} disabled={!hdd.connected} loading={isScanning}>
           {isScanning ? "Taranıyor" : "Yeniden tara"}
         </Button>

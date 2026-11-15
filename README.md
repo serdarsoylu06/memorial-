@@ -95,7 +95,7 @@ ROOT/  (exFAT HDD)
 - Yıl şeridi: oturumların yıl içindeki yeri
 - Her oturum için zaman şeridi: her çizgi bir dosyanın çekildiği an
 - Önerilen hedef klasör satır içinde düzenlenir
-- Onayla (ayara göre kopyalar ya da taşır), oturumu aç, reddet
+- Arşive kopyala ya da taşı (ayara göre), dosyaları gör, atla; bekleyen oturumların hepsini tek seferde işleme
 - Yüksek güvenli oturumları toplu onaylama
 
 ### 3. Oturum
@@ -106,7 +106,8 @@ ROOT/  (exFAT HDD)
 ### 4. İnceleme
 - Bir oturuma yerleştirilemeyen dosyalar
 - Filtreler: tarihi olmayanlar, cihazı bilinmeyenler, kendi içinde kopyalar
-- Seçili dosyaları elle bir klasöre taşıma ya da silme
+- Tek tek, Shift ile aralık ya da hepsini birden seçme
+- Seçili dosyaları elle bir klasöre taşıma ya da Çöp Kutusu'na atma (kalıcı silme yok)
 
 ### 5. Arşiv
 - ARCHIVE/ yapısının ağaç görünümü ve klasör adında arama
@@ -114,7 +115,7 @@ ROOT/  (exFAT HDD)
 
 ### 6. Kopyalar
 - Arşivde birebir aynı dosyalar (SHA-256) ve benzer görüntüler
-- Çiftler küçük resimleriyle yan yana; kopyayı sil ya da ikisini de tut
+- Çiftler küçük resimleriyle yan yana; kopyayı Çöp Kutusu'na at ya da ikisini de tut
 
 ### 7. Ayarlar
 - Arşiv diski ve klasör adları, klasör yapısını oluşturma
